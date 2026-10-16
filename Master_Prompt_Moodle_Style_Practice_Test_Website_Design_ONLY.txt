@@ -1,0 +1,303 @@
+MASTER BUILD PROMPT FOR CODEX / CODING AGENTS
+============================================
+PROJECT: HIGH-FIDELITY, ONE-QUESTION-PER-PAGE OS PRACTICE TEST WEBSITE
+VERSION 1.0 — DESIGN / USER EXPERIENCE / EXAM DELIVERY / AUTO-MARKING SYSTEM ONLY
+IMPORTANT: THIS FILE CONTAINS NO EXAM QUESTIONS AND AUTHORIZES NO QUESTION GENERATION.
+
+COPY EVERYTHING BELOW TO THE WEBSITE-BUILDING AGENT.
+
+ROLE AND NON-NEGOTIABLE MISSION
+===============================
+You are a senior frontend engineer, product designer, and test-infrastructure engineer. Build an actual, runnable, locally hosted practice-exam application that closely reproduces the VISUAL APPEARANCE and BEHAVIOR of the University of the Witwatersrand Moodle quiz attempt and attempt-review pages shown in the user's screenshots. This is a PRIVATE STUDY SIMULATOR, not a connection to the real Moodle service. The user wants to be so familiar with the interface that its appearance and interaction on exam day feel routine.
+
+Prioritize PIXEL-LEVEL FIDELITY to the screenshots, especially the full-size desktop screenshots `image.png` and `Screenshot 2026-10-16 162145.png` showing one question per page, and the smaller-zoom screenshots `Screenshot 2026-10-16 153400.png` through `154518.png` plus `161820.png` through `162132.png` showing varied question types and review behavior. The screenshots are supplied by the student and should be treated as THE DESIGN REFERENCE. Use the high-resolution/normal-zoom images as PRIMARY measurements. Do not accidentally copy the shrunk overview screenshots' tiny font as the proper desktop scale. Do NOT recreate the browser's Chrome tabs/address bar: recreate only the PAGE CONTENT shown inside the browser.
+
+The student will author practice test material in OTHER CHATS, resulting in a paired PUBLIC QUESTIONS .txt file and a PRIVATE ANSWER MEMO / SOLUTION .txt file for each test. You are implementing the reusable ENGINE and INTERFACE into which those files will be loaded. Do not write, invent, paraphrase, fetch, or embed any operating-system questions, answer values or explanations yourself. Placeholder fixture content for developer tests must be clearly marked artificial and not used as a real practice test.
+
+SUCCESS IS TWO SEPARATE DIMENSIONS:
+A) Design: the test and review pages look nearly indistinguishable from screenshots at a normal 1365×768 or 1440×900 desktop viewport.
+B) Behavior: one question per page, a configurable 2-hour countdown, autosave, navigation and flagging, test completion or automatic time-expiry submission, server-side marking (including partial credit), persistent score, and reviewed answers + detailed solutions appearing ONLY AFTER the test is completed.
+
+HARD CONSTRAINTS
+================
+1. One question per page — ALWAYS, both during the sitting and during the review. DO NOT implement an "all questions on one page" view, even though such a link exists in the original Moodle screenshot. It should either be omitted or be a noninteractive label saying one-question-per-page mode.
+2. 120-minute exam countdown BY DEFAULT (2 hours). This is the user's requested practice duration, not a claim about the duration of the original Test 1. Make duration configurable per paper.
+3. The test starts only after the user explicitly clicks START ATTEMPT. Keep correct answers/solutions hidden while attempt is open, including from frontend HTML, JS bundle and network payload.
+4. The server, NOT the browser's JavaScript countdown, determines the official deadline. The timer must survive navigation, refresh and browser reopening, and must not pause on background tabs. On timeout finalize and grade exactly once.
+5. On user submission (or time expiry) compute marks automatically and unlock a Moodle-style attempt REVIEW. Keep entered answers intact, with no editing after finalization.
+6. Do not author ANY real question or solution. Import future pairs of files supplied by the user. Agent may build data schema, validators, parser, and an EMPTY paper state, but do not fill with generated questions.
+7. Preserve full decimal/array/binary input fidelity and deterministic grading. A question can have several subparts and only some may be correct.
+8. Code must be maintainable, testable, private and local-first. Do not require university Moodle login or scrape/exfiltrate Moodle accounts or submitted data. Do not copy school logos or claim official affiliation unless user supplies permitted assets.
+9. Do not create a generic modern card-based study dashboard, neon design, gamification dashboard, dark mode, chat interface or tutor interface. This is intentionally restrained, dated Moodle visual language.
+10. Keep logic/data/view separated, so the user can load five or more fresh practice exams without code edits or leaking memo contents.
+
+SCREENSHOT-BASED REFERENCE: VISUAL ANATOMY
+========================================
+Most important PRIMARY screenshot: `image.png` at approximately 1365×768 shows Q23 review in NORMAL browser zoom. Browser chrome extends to roughly y=118; WEBSITE starts beneath it. The following coordinates are approximate and MUST be checked directly against attached screenshots by the agent:
+
+A. PAGE BASE
+- Overall page: white background, compact old-Moodle styling, default sans-serif resembling Arial/Helvetica; crisp 1px light grey boundaries, dense small text, minimal shadows.
+- White thin header / breadcrumb strip near top of app (under omitted browser chrome). At left it shows `MS  Home  Dashboard  My courses` with small black/blue text. On far right a small notification/user area if desired; keep visually restrained. On test attempt a title such as the imported test name appears in header/overview but do not invent the test name.
+- Below header, a pale greyish page background or white/off-white content wrapper. Content is wide, not a centered narrow card. At a viewport width ~1365 the main row begins x≈56–57 (left gutter), question content begins x≈154, and quiz navigation panel begins x≈1105.
+- Visual hierarchy is quite flat. Do not enlarge body text into modern 16–20px paragraphs. Use compact sizes approximating 12–13px body text and a modest 13–16px sidebar/header. Verify by screenshot pixel comparison.
+
+B. LEFT QUESTION STATUS BLOCK (around x57–141, y186–292 in example)
+- Narrow ~84–90px white rectangular sidebar aligned with top of cyan question panel.
+- 1px light grey border, square or very lightly rounded corners, compact 7–9px internal padding.
+- Top label `Question 23`, bold compact black.
+- During attempt show `Not yet answered` or `Answer saved` / equivalent neutral status; `Marked out of X.XX` can appear if desired but NO correct/incorrect indication.
+- During review show `Correct`, `Incorrect`, or `Partially correct`, followed by `Mark N.NN out of M.MM`, precisely as Moodle.
+- Beneath status a tiny blue `Flag question` link with a small flag icon. Flag state should toggle; should not mark an answer correct or incorrect.
+- This block is separate from the cyan question panel; do not merge it into the main question card.
+
+C. PRIMARY QUESTION PANEL (around x154–1068 on the normal-size screenshot)
+- Width about 914px in the 1365px reference, responsive according to available width; use a 3-column CSS grid or flex with ~84px status, flexible main area and ~240px right nav, plus gutters ~13–35px.
+- Pale pastel cyan/blue background, sample sampled color about #CCE6EA, subtle border close to #B4D5DA, 4–5px corner radius, inner padding about 12–14px.
+- Question stem starts near x166, y205 (12px inset from panel), small black type, mostly left-aligned.
+- Stems may contain plain text, short emphasized terms, table of machine state, colored monospace fragments, code listings, or binary and bracketed arrays. Render data with preserved newlines and careful monospace formatting. Do not turn into rich oversized markdown typography.
+- Numeric fields are modest native-looking small rectangular input boxes, e.g. Q23(a) about 88px wide, ~22px high; white fill; grey #8A8A8A border; very small radius. List input fields can be wider. Dropdowns look like ordinary grey-gradient/neutral native selects with small chevron, NOT huge modern segmented controls.
+- Label subparts as `(a)`, `(b)`, ... in bold black and place the control directly below or adjacent, in the natural document flow.
+- Avoid excessive vertical spacing. One question plus its subparts can form a long scrollable page; do not cram a long question into a fixed height or add horizontal scrolling unnecessarily.
+- In REVIEW MODE keep the student's existing answers inside the same inputs, but readonly/disabled as appropriate. The selection and typed result must remain visually recognizable.
+- Immediately BELOW certain numeric/list input controls in REVIEW MODE is a wide white answer-echo rectangle. Screenshot Q23 shows it starting near x203 and spanning close to the right edge of cyan panel, height about 62px. Small text at upper-left: `Your last answer was interpreted as follows:`; centered below in larger/bolder black is normalized answer text, e.g. `112`. The exact phrase and centered value are important. Show this ONLY in review, never while writing.
+- Under the input answer area show tiny grey instructions if specified by imported question: `(a whole number - do not type the unit)`, `(exactly 14 binary digits, including leading zeroes)`, `(a list of four numbers in square brackets, frame 0 first)`, etc. Do not invent instructions not provided by question data.
+
+D. POST-SUBMISSION FEEDBACK PANEL (beginning about x154, y518 in Q23 screenshot)
+- A second separate, large pale cream/orange panel begins about 13px under cyan question panel, horizontally aligned to the cyan box. Background sampled approximately #FCEFDC, light border #F6E2BF, radius 4–5px. Large enough for lengthy feedback and complete solution.
+- Body text uses orange/brown ink similar to #A06B2D, with red/magenta code/result emphasis where screenshot shows it. Keep body small (~12px), closely spaced but readable, left-aligned, with paragraph spacing around 7px.
+- Start with per-subpart short lines `Correct answer, well done.` or `Incorrect answer.` / `Your answer is partially correct.` Then follow with detailed derivation and pedagogical explanation from the private memo.
+- Near the lower part include thin beige divider and explicit accepted answer sentence, e.g. `The answer <ANSWER>, which can be typed as <ANSWER>, would be correct.` or `A correct answer is: "<CHOICE>"`. For multiple subparts show each separately. Answers are DATA from the private memo, never authored/guessed by website code.
+- Feedback may extend far beyond viewport, creating normal page scroll. Do not put it in a small collapsed accordion by default, and do not truncate it. The user's earlier shrunk screenshots show long feedback occupying hundreds of pixels: preserve this rich, dense style.
+- `?` help icon at some panel corners is optional; can draw a tiny neutral-grey circle with question mark only if screenshot fidelity requires it. It should not interfere with content.
+
+E. RIGHT QUIZ NAVIGATION (around x1105–1347, y223–483)
+- Separate white fixed-width sidebar approximately 240px with subtle grey border, modest rounding, 12–14px padding. Positioned near right edge, aligned slightly BELOW top of question box (the screenshot shows y223 vs question y186). Sticky while scrolling, but not overlapping bottom controls on small screens.
+- Compact title `Quiz navigation` (~13px, dark ink).
+- Numbered grid of question navigation tiles, 7 columns at desktop screenshot; tiles ~23×22px with 4–6px gaps. At 23 questions the layout is rows 1–7, 8–14, 15–21, 22–23. Preserve shape, grid density and row spacing.
+- Tiles have thin 1px borders and pale backgrounds. Each shows small question number centered at top and possibly a tiny progress/status icon below. In REVIEW mode status colors approximate: green #E5F3DD / green outline/icon for correct; orange #FFF3DE / amber outline for partial; pale red #FDE8E4 / red outline for incorrect. Display the selected/current tile with a distinct focus/active marker. The original screenshot contains green question 1/15/23, many amber partials and red wrongs.
+- During ACTIVE attempt do not show grading-status colors; use neutral saved/unanswered/flagged colors, perhaps a narrow flag indicator. Protect answer privacy.
+- Under grid: show `Finish attempt` while sitting (or equivalent), and `Finish review` in review. The original screenshot also includes `Show all questions on one page`, but this private app MUST enforce one-page-at-a-time; omit that all-page action. Links are old-fashioned small blue underlined or plain-anchor-like text, no large primary cards or floating FAB.
+- On viewport less than ~1100px collapse navigation to drawer/accessible toggle without losing progress; keep desktop fidelity first.
+
+F. BOTTOM NAVIGATION
+- On the last question review screenshot lower left shows a small blue `Previous page` with a left-arrow icon; lower right shows `Finish review`. Other question pages should have `Previous page` and `Next page` as appropriate. Active attempt must have `Previous page`/`Next page` and safe `Finish attempt` flow. UI should not reset scroll unexpectedly; navigating to new question normally starts at top of its question area.
+- Buttons/links should feel like Moodle Bootstrap-era UI: small, blue/grey text or restrained rectangular controls, not gradient hero actions.
+
+G. OVERVIEW / REVIEW SUMMARY PAGE
+- Screenshot first page for the original historical attempt shows centered/bold quiz title (`Test 1 2026 Full-Time Tuesday`) above a thin table-like summary with rows: `Status`, `Started`, `Completed`, `Duration`, `Marks`, `Grade`. Body compact, grey/white zebra stripes, thin horizontal rules and left aligned data. Recreate this pattern for start/finish/review summary screens using each NEW test's imported title/dates/actual marks. Do not hardcode that old title/grade/date.
+- Start screen may have a small clear `Attempt quiz now` / `Start attempt` button, rules and 2-hour duration. Once started, immediately enter Q1 in one-page mode.
+- On finish/expiry show status, timestamps, elapsed time, marks out of total, percentage to two decimals, and a `Review attempt` action. The summary should feel like Moodle rather than a modern analytics dashboard.
+
+H. TYPOGRAPHY & COLOR TOKENS (INITIAL ESTIMATES, VERIFY BY SCREENSHOT)
+  --body-font: Arial, Helvetica, sans-serif
+  --page-bg: #F8F9FA / #FFFFFF
+  --primary-question-bg: #CCE6EA   (sampled from normal screenshot)
+  --question-border: #AED3DB
+  --review-bg: #FCEFDC            (sampled from normal screenshot)
+  --review-border: #F3DFBF
+  --review-ink: #986127 / #A06B2D
+  --text: #161616
+  --muted: #737373
+  --link: #0059B8 or browser-standard Moodle blue
+  --panel-border: #D8DEE2
+  --input-border: #888888
+  --white: #FFFFFF
+  --grade-correct: soft green border/background
+  --grade-partial: pale amber/orange
+  --grade-wrong: soft salmon/red
+These are targets, not constraints to ignore screenshot differences. Use image sampling/overlay to calibrate precisely if feasible. Moderate line heights around 1.3–1.5; no decorative shadows except faint ones visible in screenshot.
+
+FUNCTIONAL PRODUCT SPECIFICATION — NO CONTENT GENERATION
+========================================================
+1. Exam library / index
+   - List imported Practice 1, 2, 3, 4, 5 (and any later) by actual imported metadata, never hardcode questions.
+   - State: Not started, In progress (with remaining time), Submitted, Auto-submitted at timeout, Reviewed.
+   - Each exam is a DIFFERENT immutable version; fresh attempts store which version they used. Do not silently replace a student attempt's answers if the memo is updated later.
+   - User can choose a fresh attempt or review a completed one. An optional retake starts a NEW attempt rather than erasing the old score.
+   - Minimal library UI: while useful, it should not overshadow exam screenshot fidelity. The crucial screens are attempt and review, not dashboard.
+
+2. Start attempt flow
+   - Show exam title from PUBLIC test file, duration (default 2:00:00), number of questions, total marks, basic rules and START button.
+   - On start: create attempt on server, timestamp `started_at`, deadline `started_at + duration_seconds`, status `in_progress`, initialize answer/flag state.
+   - When user navigates directly to question URL without starting, redirect to prestart.
+   - URL examples (agent may adapt route shape):
+       /practice
+       /practice/:testId/start
+       /practice/:testId/attempt/:attemptId/question/1
+       /practice/:testId/attempt/:attemptId/summary
+       /practice/:testId/attempt/:attemptId/review/1
+   - With import/version persistence so browser refresh or local server restart resumes correctly.
+
+3. Exam attempt / one-question view
+   - Show EXACTLY one numbered question's cyan panel and narrow left status panel, and right quiz navigation.
+   - Display all subparts of that one question together in order. Each answer controls is independently editable.
+   - Controls must support numeric text, decimal, binary string, ordered/list text, short free text (only if deterministic marking is possible), single-select dropdown, single-choice, multiple-choice when defined by data, ordered permutation input, and code/data tables as READ-ONLY parts of stem. Provide generic flexible component renderer, not per-question hardcoded JSX.
+   - Autosave answer on input change with debounced PATCH or equivalent, plus an immediate save on blur/navigation. Show unobtrusive `Saved` / `Saving` state. Never erase an unsaved typed answer when navigating.
+   - User can leave a part blank and move to the next. Preserve exact raw input, plus parsed result where relevant.
+   - Flag button toggles an independent `flagged` bit per question and updates the nav.
+   - Question nav tiles link directly to that question; prev/next also change question. One-page layout persists.
+   - Countdown visible but unobtrusive, e.g. small `Time left 01:59:59` in header or above sidebar; it should not materially disfigure the screenshot. Under 5 minutes perhaps change color softly, with an accessible announcement at 5min/1min; not loud animations.
+   - Status panel while active: answered/incomplete, flagged; no green/red correctness. For multi-part questions differentiate fully answered vs some blanks without revealing grade.
+   - HTML tables and code should be responsive and preserve monospace line breaks.
+
+4. Finish submission
+   - A clear, compact `Finish attempt` option from right nav and at final question.
+   - Confirmation screen styled like Moodle: list questions with answered/unanswered status, list flags, time left, and `Return to attempt` / `Submit all and finish` actions.
+   - Warn about unanswered parts and show counts, but do not reveal correctness.
+   - Clicking final confirmation atomically saves the latest answers, flips status to submitted once, and runs server-side scoring. Prevent double-submit/race conditions.
+   - User cannot alter answers after submit. User can then open summary and per-question review.
+
+5. Timer and expiry
+   - Countdown official end is stored server-side. Use server clock to calculate remaining seconds. Re-sync on every navigation, with an occasional polling check if available.
+   - If deadline passes while user is on any page: expire server attempt immediately when next request arrives and ideally via a scheduled job/timer on server too; finalize & grade and redirect to result; while offline or server down, the deadline stays based on absolute time, so later reopening triggers finalization.
+   - Render zero rather than negative countdown. No accidental extra time on refresh/new tab. Only initial start fixes deadline.
+   - Multiple tabs must share the same attempt; updates should not corrupt each other. Optimistic revisions or latest-write-wins with visible save confirmation acceptable for this local app.
+   - Use UTC instants internally; display relative durations and optional local date/time in the locale configured by user. Avoid assuming unprovided time zone.
+
+6. Review mode (MOST IMPORTANT AFTER ATTEMPT)
+   - Renders same one-question layout, with their values in readonly controls, answer-interpretation white stripes (where applicable), correctness labels and marks in left status box, explanatory orange area under cyan.
+   - Recreate original Moodle review's characteristic contrast: cyan question/prompt, white parsed-answer boxes, and a large warm amber detailed review/solution block.
+   - Question nav switches from saved/unanswered to color-coded correct/partial/incorrect, with icons or meaningful labels so it remains accessible.
+   - For each SUBPART, show raw entered answer, optional normalized/parsed value, earned points, possible points, and feedback, while preserving original compact screenshot style. Where the actual Moodle review does NOT explicitly print per-part marks, you may put them in a visually subtle detail row or within feedback, not overpower question text.
+   - The private memo's correct answer should appear in feedback only now, including accepted variants, worked solution and misconception explanation.
+   - Show incomplete and blank answers as blanks, not zero by default. Distinguish skipped from wrong.
+   - Navigation remains 1-question-at-a-time and previous/next work; `Finish review` returns to score summary/library.
+   - An attempt-level summary uses the exam title, status, started, completed, duration, marks `earned/possible`, percent grade (2 decimals) and review link. Do not permanently display the historical 39.22 score.
+
+7. Multiple practice tests and progression
+   - Add test pairs independently without editing source code. This is core to five practice rounds.
+   - Preserve results per attempt, average optional, and revisit historical review without rewriting old answers when a new paper imported.
+   - Support several difficulty variants and question counts. Do not force every exam to have 23 questions or 77 marks; those are only the historical reference measurements.
+   - Option to clear test fixture data separately from real attempt data, with explicit confirmation; do not auto-delete records on restart.
+
+8. Data ingestion / paired TXT contract
+   - Question generator is a SEPARATE AGENT and will supply two text files per paper: PUBLIC exam and PRIVATE memo. Allow loading these through an admin-only local import screen, an offline CLI import command, or both.
+   - Implement a robust, DOCUMENTED file schema accepted even when the physical file extension is .txt. Prefer UTF-8 text containing clearly delimited machine-readable JSON objects or a well-documented plain-text tagged format. If future source is freeform prose, run a parse-and-review stage that produces structured internal records; never parse ambiguous long prose into graded questions silently.
+   - Stable `test_id`, `version`, `question_id`, `part_id`, `type`, `marks`, `prompt`, `contentBlocks` (text/code/table), `answerInputHint`, `choices` (for select), `choice_id`, constraints, timer. Memo keyed by exact IDs with `graderType`, `acceptedAnswers`, numeric tolerance/normalization, per-part weight, worked solution and feedback paragraphs. This is SCHEMA ONLY; do not fill with exam content.
+   - A single public test can be imported and previewed without the memo, but MUST NOT start a graded attempt until matching private memo is imported and validated. Memo stored server-side in access-controlled storage/database only.
+   - Verify paired test ID, version, IDs and all mark totals, required fields, accepted grammars and grading strategy. Show import validation report and fail clearly if mismatch.
+   - Public test response APIs must OMIT private answers, grading predicates, accepted-choice IDs and feedback until submission. The browser should receive only the question text/options/metadata needed to render.
+   - On submit: backend retrieves private memo, runs deterministic validators, stores score and review snapshot. Only review endpoints for completed attempts may return private solution fields.
+   - Future practice tests may arrive as .txt attachments, file paths or manual imports. Document exact import procedure with a CLI example using placeholder filenames only.
+
+9. Marking engine — deterministic, not model-guessed
+   - Numerical integer: parse trim whitespace and optional leading sign, compare exact integer using safe precision. Validate magnitude and format where required.
+   - Decimal: compare numerically, not string literal, with per-part absolute/relative tolerance and rounding rule; e.g. accept equivalent trailing zeros, reject units if explicitly requested no units.
+   - Binary mask: verify exact stated bit width and only 0/1; preserve leading zeroes. Equal integer value without correct specified width does not pass if width is explicitly examined.
+   - List/array: accept reasonable whitespace and bracket variants if authorized by memo, parse into integers/strings, compare exact length, order and elements. For nested `[address,length]` pairs compare shape and sortedness if required. Do not score the literal raw string only.
+   - Ordering: compare array permutation against ordered labels; exact sequence normally required, plus partial matches ONLY if memo explicitly defines partial credit.
+   - Dropdown/MCQ: use stable option IDs, not option order or displayed sentence, and never transmit which ID is correct before submission.
+   - Free text: do NOT secretly evaluate with a language model unless student later explicitly requests an LLM-assisted mode. For this project prioritize fully auto-markable structured answers; open text can use clearly defined accepted variants/regex with cautious review fallback.
+   - Multi-part score is sum of part scores and optional declared granular partial-credit rubric. Clamp to [0,max], support decimal precision (the original Moodle result includes values such as 1.40/4.00), and display total consistently.
+   - Never award all-or-nothing whole-question marks if part-level marks exist. Do not show solution details until locked.
+   - Any ungradable response should be flagged as `needs_manual_review`, not silently guessed correct/incorrect. The core user goal is automatic marking; import validation should warn before exam about item types that cannot be marked automatically.
+
+10. Suggested data model (generic and question-free)
+    tests: id, title, version, duration_seconds, total_marks, imported_at, active
+    question_public: test_id, question_id, number, public_content, possible_marks
+    question_private: test_id, version, question_id, private_memo_payload
+    parts: question_id, part_id, display_order, response_type, public_constraints, points_possible
+    attempts: attempt_id, test_id, test_version, started_at, deadline_at, submitted_at, status, marks_awarded
+    responses: attempt_id, question_id, part_id, raw_value, normalized_value, saved_at
+    flags: attempt_id, question_id, flagged
+    grading: attempt_id, part_id, points_awarded, is_correct, grading_details, feedback_snapshot
+  If a database schema changes, maintain migrations and compatibility for existing attempts.
+
+11. Implementation preferences
+    - FIRST inspect current repository/working directory. If there is an existing app, adapt it rather than wiping unrelated files. If greenfield, prefer a coherent TypeScript full-stack framework (e.g., Next.js + React) with SQLite for persistent attempts; exact CSS modules/custom styles for UI fidelity; Zod or equivalent schema validation; Vitest/Jest for pure graders and Playwright for browser flows.
+    - Do not substitute a pure static client HTML page that exposes all memo answers in JS. An offline/local backend is needed to keep memo private until finishing.
+    - All app code runnable with a small README (`npm install`, DB initialization, `npm run dev`, test-pair import, open localhost). Avoid expensive cloud services or auth complexity for single-user local use. For external deployment add secure admin access/session auth; do not make private memo endpoints public.
+    - Make styling componentized and token-driven: app header, status sidebar, question content, answer control, parsed-answer echo, feedback panel, right nav, footer, summary table.
+    - Use semantic HTML forms, accessible labels, keyboard focus, correct tab order, high-contrast text for status, aria-current for nav active, avoid relying on color alone. On mobile allow a nav toggle; no horizontal layout overflow.
+    - Keep exam surface visually plain and stable; transitions should be minimal so it feels like Moodle.
+
+PIXEL-FIDELITY IMPLEMENTATION PROCEDURE
+======================================
+STEP 1 — REFERENCE MEASUREMENT
+  Open and study PRIMARY `image.png` / full-size one-question screenshot. Measure viewport vs website content (ignore browser chrome), approximate positions, margin/padding, font metrics, horizontal alignment, pale cyan rectangle, cream feedback rectangle, left status width, quiz-nav width and number tile grid. Inspect zoomed-out screenshots only for alternate question structures, the summary table and long feedback formatting. Record one-page screenshot dimensions as the reference target.
+
+STEP 2 — BUILD STATIC SHELL FIRST, WITH NO REAL CONTENT
+  Build app header/breadcrumb, main three-column layout, narrow question-status block, cyan question block, right quiz-nav grid, and cream review panel using neutral dummy PLACEHOLDER strings. Compare to screenshot at the SAME viewport/zoom. DO NOT populate with any OS question or answer from previous historical exam. Use typography and spacing matching reference. Prefer ordinary CSS over heavy component-library defaults.
+
+STEP 3 — BUILD GENERIC QUESTION RENDERER
+  Add no-content sample components for each answer type, dynamic subpart count, code blocks, table blocks, answer hints, save status. Display placeholder test metadata only in development/test fixture. Integrate public import schema.
+
+STEP 4 — PERSISTENT TIMER AND ATTEMPT STATE
+  Start/resume/expire/submit single authoritative attempt, question navigation, flags, autosave. Write tests showing countdown does not reset after navigation, reload, tab closure and local server restart. Test exact expiry boundary. Do not allow answer submission after deadline.
+
+STEP 5 — PRIVATE MEMO AND MARKING
+  Implement import validation; isolate private solution fields on backend; typed graders; detailed solution formatting. Validate null/unanswered responses and malformed entries gracefully. Only a FINALIZED attempt's authorized review route may reveal the memo. Test auth/authorization boundaries or local session token as appropriate.
+
+STEP 6 — REVIEW MODE SCREENSHOT MATCHING
+  Use generic fake review fixture to reproduce white interpreted answer strips, green/amber/red tile states, left status `Mark ... out of ...`, large orange feedback, divider and accepted-answer lines, bottom navigation. Compare screenshot in Playwright at 1365×768 and 1440×900. The same components should serve multiple subpart types and long feedback without breaking.
+
+STEP 7 — FINAL EXAM FLOW TESTS
+  Simulate an all-answered exam, a partially answered exam, a skipped/blank exam, an automatic timeout, a manual early submit, a multi-tab save, a retake, and loading 5 distinct empty/synthetic fixture papers. Verify each attempted answer and flag survives navigation/refresh and that review is frozen post-submit.
+
+STEP 8 — PREPARE IMPORT DOCUMENTATION
+  Write a small 'how to provide the next two TXT files' guide: names, required syntax/schema, command/UI action, validation, preview, how to start. This is delivery documentation ONLY; no new content generation. Include clear note that the PRIVATE memo must never be committed to a public frontend repository.
+
+VISUAL REGRESSION ACCEPTANCE CHECKLIST
+=====================================
+[ ] Screenshot at 1365×768 in REVIEW has white page, small blue breadcrumb links, left ~84px status box, large pale cyan question box, separated cream feedback panel, right ~240px Quiz navigation box.
+[ ] The cyan and cream panels match the approximate sampled colors #CCE6EA and #FCEFDC or calibrated actual screenshot values.
+[ ] The responsive three-column grid aligns top of left status and question at matching y; right nav is slightly lower.
+[ ] Fonts, line spacing, input height and natural paragraph flow are compact, not oversized.
+[ ] Numerical answer is shown in a small text input; in review a white interpreted-answer strip displays centered parsed value, with original Moodle-like phrase.
+[ ] Multiple subparts appear within THE SAME current-question panel, but no other questions' stems appear on page.
+[ ] Right nav has dense 7-column numbered grid at desktop, links to each question, clearly tracks current question.
+[ ] Review nav statuses show correct/partially correct/incorrect with restrained green/amber/red outlines and meaningful non-color text/icons.
+[ ] Orange review panel supports long multi-paragraph solutions and accepted-answer lines without being collapsed/truncated.
+[ ] 'Previous page' and 'Next page' / 'Finish review' use small, unobtrusive old-Moodle link style.
+[ ] App can scroll normally down very long questions and solutions; sidebar does not obscure controls.
+[ ] No browser toolbar, fake chrome UI, school login, modern dashboard widgets, chat bubbles or AI assistant UI appears in the exam view.
+[ ] One-page mode is always enforced; there is no functioning all-questions page.
+
+BEHAVIOR / SECURITY ACCEPTANCE CHECKLIST
+========================================
+[ ] Agent has NOT generated, rewritten, hardcoded, invented or embedded any actual exam question or memo content.
+[ ] The app displays `No test imported` when its exam source directory is empty, with a precise import instruction; it does not start an empty fake exam.
+[ ] Two paired UTF-8 TXT files can be imported, validated and made into one graded practice paper without source-code changes.
+[ ] Five different paper versions can coexist with separate attempts, scores, timers and review records.
+[ ] Score = sum of subpart awarded marks; total = sum of declared max marks; decimal scoring preserved. Grade percentage formatted to two decimals.
+[ ] Imported question prompts and choice labels arrive in the client BEFORE submission; private memo/answers/feedback NEVER do.
+[ ] Test cannot start until memo exists and passes ID/mark/answer validation.
+[ ] 2:00:00 default duration; timer is derived from persisted server deadline and never resets on page refresh.
+[ ] Autosave and navigating Q1→Q2→Q1 preserves all entries exactly.
+[ ] Wrong, partially correct, right, unanswered, and flagged are distinct states; correctness visible only after submit.
+[ ] On manual finish or deadline expiry, submission happens at most once, marks all parts and freezes inputs.
+[ ] Timed-out attempt shows finished summary and allows review of exactly what was entered; no answers may be changed.
+[ ] Lists, arrays, binary masks, numeric ratios, selectable categories and multiple subparts are supported with documented accepted-format rules.
+[ ] Import validator rejects contradictory total marks or unmatched memo IDs.
+[ ] All gradable fields have memo, accepted-value rule and explanation. No random or LLM-based marking.
+[ ] A detailed, correct solution appears in orange feedback only after submission, with the student's own answer and any parse echo visible above.
+[ ] Buttons/links function; no fake inactive "Finish" or broken question links.
+[ ] Keyboard inputs, tab navigation, focus states and mobile drawer work; statuses aren't conveyed by color alone.
+[ ] App is locally runnable without cloud subscription, browser extension, or university login; README is sufficient for the user to operate.
+[ ] Unit tests and one end-to-end test covering start→answer→navigate→submit→review pass.
+
+IMPORTANT PRE-DELIVERY VERIFICATION
+===================================
+- Take a REAL screenshot of your local attempt page and a REAL screenshot of your local review page, at the original screenshot's normal-size desktop viewport. Compare them next to uploaded reference. Iterate until noticeable differences are minimized. Present screenshots or paths in your coding-agent final report; don't claim "pixel perfect" without doing comparison.
+- Work from screenshots, not memory. Especially verify that the review orange panel appears BELOW cyan, not beside it, and that all text in feedback is brown/orange with accepted answers visually distinct.
+- Do not silently omit tricky behaviors (auto-submit on time expiry, partial marking, list-parse echo, safe memo storage, multiple exams). If there is a technical limitation, disclose it clearly and offer a concrete tested alternative.
+- Write all important tests and run them before claiming completion. Verify app is still responsive at small widths.
+- Keep solution data out of public Git repositories even after submission; backend should return only appropriate review records and require appropriate access.
+
+DELIVERABLES REQUIRED FROM CODING AGENT
+=======================================
+1. Runnable application source code in the existing or new local repository.
+2. Pixel-aligned reusable components for QUIZ ATTEMPT, QUIZ REVIEW, QUIZ NAVIGATION, FINISH/SUMMARY and ANSWER CONTROLS.
+3. Private server-side import/grade modules, paired TXT data contract, persistent attempt/timer storage.
+4. Import instructions and short README including exact local commands, where to put the future public/private TXT pair, how to launch/import/start/review/retake.
+5. Automated tests for timer, grading, import validation, navigation, saved responses and solution secrecy.
+6. Two screenshot proofs showing attempt view and review view at normal desktop size, with a brief self-check of differences from reference.
+7. A concise outstanding-issues list, and no hidden unimplemented TODOs presented as functioning features.
+
+SCOPE GUARDRAIL AND HANDOFF
+==========================
+This master prompt is intentionally DESIGN + EXAM DELIVERY + MARKING INFRASTRUCTURE ONLY. Do not write any practice test questions, answer keys, or topic coverage now. The student will generate Practice 1 and its memo in another chat using a separate behavior model and new-scope study materials. After both files exist, offer to import and validate them. Repeat for Practice 2, 3, 4, 5. The exam UI stays nearly unchanged; only datasets and scores vary.
+
+This site should feel like taking the actual Moodle test: one question at a time, modest inputs, narrow question-status card, pale cyan question panel, right 7-column quiz navigation, a two-hour deadline, and only after completion the familiar detailed pale-orange review and correct-answer feedback. Above all, make it work reliably and predictably.
+
+END MASTER PROMPT — NO QUESTIONS OR MEMOS INCLUDED.

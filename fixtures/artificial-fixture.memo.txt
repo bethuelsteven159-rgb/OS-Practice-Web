@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "private_memo",
+  "testId": "fixture-ui-demo",
+  "version": 1,
+  "totalMarks": 10,
+  "questions": {
+    "q1": {
+      "solution": [
+        "\\(112\\) ticks: \\(1123\\) units contains \\(112\\) whole \\(10\\)-unit intervals, with \\(3\\) units left over.",
+        "This paragraph is synthetic placeholder feedback verifying the **bold**, *italic*, `code`, and \\(112\\) math typography inside the cream review panel."
+      ],
+      "parts": {
+        "a": {
+          "marks": 1,
+          "grader": { "type": "integer", "answer": 112 }
+        },
+        "b": {
+          "marks": 1,
+          "grader": { "type": "choice", "answer": "opt_alpha" }
+        }
+      }
+    },
+    "q2": {
+      "solution": [
+        "Synthetic explanation for Question 2 verifying multi-part partial credit and binary width checking."
+      ],
+      "parts": {
+        "a": {
+          "marks": 1,
+          "grader": { "type": "integer", "answer": 35 },
+          "feedback": ["Synthetic feedback for part (a)."]
+        },
+        "b": {
+          "marks": 1,
+          "grader": { "type": "decimal", "answer": 2.5, "absTol": 0.001 },
+          "feedback": ["Synthetic feedback for part (b)."]
+        },
+        "c": {
+          "marks": 1,
+          "grader": { "type": "binary", "answer": "00101101", "width": 8 },
+          "feedback": ["Leading zeroes are significant in fixed-width binary masks."]
+        }
+      }
+    },
+    "q3": {
+      "solution": [
+        "Synthetic worked solution for Question 3 list and permutation graders.",
+        {
+          "type": "ol",
+          "items": [
+            "First synthetic step in ordered list.",
+            "Second synthetic step in ordered list.",
+            "Third synthetic step in ordered list."
+          ]
+        }
+      ],
+      "comment": "Synthetic comment panel verifying the green Comment box.",
+      "parts": {
+        "a": {
+          "marks": 3,
+          "grader": {
+            "type": "list",
+            "answer": [10, 20, 30, 40],
+            "items": "integer",
+            "ordered": true,
+            "partial": "positional"
+          }
+        },
+        "b": {
+          "marks": 2,
+          "grader": {
+            "type": "list",
+            "answer": [1, 3, 2, 4],
+            "items": "integer",
+            "ordered": true,
+            "partial": "none"
+          }
+        }
+      }
+    }
+  }
+}
