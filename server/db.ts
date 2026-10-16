@@ -37,6 +37,8 @@ export interface TestSummaryRow {
   hasMemo: boolean;
   isFixture: boolean;
   importedAt: number;
+  publisherUsername?: string | null;
+  publisherId?: string | null;
   attempts: AttemptSummaryRow[];
 }
 
@@ -114,10 +116,26 @@ export class ExamStore {
         has_memo INTEGER NOT NULL DEFAULT 0,
         is_fixture INTEGER NOT NULL DEFAULT 0,
         imported_at INTEGER NOT NULL,
+        publisher_username TEXT NOT NULL DEFAULT 'community',
+        publisher_id TEXT,
         active INTEGER NOT NULL DEFAULT 1,
         PRIMARY KEY (test_id, version)
       );
+    `);
 
+    // Safe migration for existing local SQLite databases
+    try {
+      this.db.exec(`ALTER TABLE tests ADD COLUMN publisher_username TEXT NOT NULL DEFAULT 'community';`);
+    } catch {
+      // Column already exists
+    }
+    try {
+      this.db.exec(`ALTER TABLE tests ADD COLUMN publisher_id TEXT;`);
+    } catch {
+      // Column already exists
+    }
+
+    this.db.exec(`
       CREATE TABLE IF NOT EXISTS question_public (
         test_id TEXT NOT NULL,
         version INTEGER NOT NULL,
@@ -214,7 +232,11 @@ export class ExamStore {
 
   // ---------- Import public / private TXT files ----------
 
-  importPublicTxt(rawTxt: string): ValidationReport & { paper?: PublicPaper } {
+  importPublicTxt(
+    rawTxt: string,
+    publisherUsername = 'community',
+    publisherId: string | null = null,
+  ): ValidationReport & { paper?: PublicPaper } {
     const parsed = parseTxtPayload(rawTxt);
     if (!parsed.ok) return { ok: false, errors: [parsed.error], warnings: [] };
     const v = validatePublicPaper(parsed.data);
@@ -222,6 +244,7 @@ export class ExamStore {
 
     const p = v.paper;
     const now = Date.now();
+    const pubUser = (publisherUsername || 'community').trim() || 'community';
 
     // Check if an existing memo is already stored for this (testId, version)
     const existing = this.db
@@ -237,8 +260,8 @@ export class ExamStore {
           `INSERT INTO tests (
             test_id, version, title, course_name, section_name,
             duration_seconds, total_marks, question_count, public_payload,
-            has_memo, is_fixture, imported_at, active
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+            has_memo, is_fixture, imported_at, publisher_username, publisher_id, active
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
           ON CONFLICT(test_id, version) DO UPDATE SET
             title = excluded.title,
             course_name = excluded.course_name,
@@ -248,7 +271,9 @@ export class ExamStore {
             question_count = excluded.question_count,
             public_payload = excluded.public_payload,
             is_fixture = excluded.is_fixture,
-            imported_at = excluded.imported_at`,
+            imported_at = excluded.imported_at,
+            publisher_username = excluded.publisher_username,
+            publisher_id = COALESCE(excluded.publisher_id, tests.publisher_id)`,
         )
         .run(
           p.testId,
@@ -263,6 +288,8 @@ export class ExamStore {
           hasMemo,
           p.isFixture ? 1 : 0,
           now,
+          pubUser,
+          publisherId,
         );
 
       this.db.prepare('DELETE FROM question_public WHERE test_id = ? AND version = ?').run(p.testId, p.version);
@@ -351,7 +378,12 @@ export class ExamStore {
     return v;
   }
 
-  importPairTxt(publicTxt: string, memoTxt: string): ValidationReport & { paper?: PublicPaper; memo?: PrivateMemo } {
+  importPairTxt(
+    publicTxt: string,
+    memoTxt: string,
+    publisherUsername = 'community',
+    publisherId: string | null = null,
+  ): ValidationReport & { paper?: PublicPaper; memo?: PrivateMemo } {
     const pubParsed = parseTxtPayload(publicTxt);
     if (!pubParsed.ok) return { ok: false, errors: [`Public file: ${pubParsed.error}`], warnings: [] };
     const pubVal = validatePublicPaper(pubParsed.data);
@@ -374,7 +406,7 @@ export class ExamStore {
       };
     }
 
-    this.importPublicTxt(publicTxt);
+    this.importPublicTxt(publicTxt, publisherUsername, publisherId);
     this.importPrivateMemoTxt(memoTxt);
     return {
       ok: true,
@@ -393,7 +425,7 @@ export class ExamStore {
       .prepare(
         `SELECT test_id, version, title, course_name, section_name,
                 duration_seconds, total_marks, question_count,
-                has_memo, is_fixture, imported_at
+                has_memo, is_fixture, imported_at, publisher_username, publisher_id
          FROM tests
          WHERE active = 1
          ORDER BY is_fixture ASC, imported_at ASC, test_id ASC, version DESC`,
@@ -410,6 +442,8 @@ export class ExamStore {
       has_memo: number;
       is_fixture: number;
       imported_at: number;
+      publisher_username: string | null;
+      publisher_id: string | null;
     }>;
 
     return rows.map((r) => ({
@@ -424,6 +458,8 @@ export class ExamStore {
       hasMemo: Boolean(r.has_memo),
       isFixture: Boolean(r.is_fixture),
       importedAt: r.imported_at,
+      publisherUsername: r.publisher_username || 'community',
+      publisherId: r.publisher_id ?? null,
       attempts: this.listAttemptsForTest(r.test_id, r.version),
     }));
   }

@@ -6,9 +6,13 @@ import { ExamStore } from './db.ts';
 import {
   renderLibraryPage,
   renderImportPage,
+  renderAuthPage,
   renderTestSummaryPage,
   renderQuestionPage,
   renderFinishConfirmPage,
+  GUIDE_DOWNLOAD_TEXT,
+  SAMPLE_PUBLIC_TEMPLATE,
+  SAMPLE_MEMO_TEMPLATE,
 } from './views.ts';
 
 export interface AppInstance {
@@ -103,11 +107,42 @@ async function handleRequest(
     return;
   }
 
+  // Download Test Creation Guide & Starter Templates
+  if (method === 'GET' && pathname === '/guide/download') {
+    const type = url.searchParams.get('type') || 'full';
+    const filename =
+      type === 'public'
+        ? 'sample.public.txt'
+        : type === 'memo'
+          ? 'sample.memo.txt'
+          : 'TEST_CREATION_GUIDE.txt';
+    const content =
+      type === 'public'
+        ? SAMPLE_PUBLIC_TEMPLATE
+        : type === 'memo'
+          ? SAMPLE_MEMO_TEMPLATE
+          : GUIDE_DOWNLOAD_TEXT;
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'no-store',
+    });
+    res.end(content);
+    return;
+  }
+
+  // Login / Register Page
+  if (method === 'GET' && pathname === '/login') {
+    sendHtml(res, 200, renderAuthPage(cfg));
+    return;
+  }
+
   // Practice Library Index
   if (method === 'GET' && pathname === '/practice') {
     const msg = url.searchParams.get('msg') ?? undefined;
+    const publisher = url.searchParams.get('publisher') ?? undefined;
     const tests = store.listTests(now);
-    sendHtml(res, 200, renderLibraryPage(cfg, tests, now, msg));
+    sendHtml(res, 200, renderLibraryPage(cfg, tests, now, msg, publisher));
     return;
   }
 
@@ -118,7 +153,7 @@ async function handleRequest(
     return;
   }
 
-  // Import UI
+  // Import / Publish UI
   if (method === 'GET' && pathname === '/import') {
     sendHtml(res, 200, renderImportPage(cfg));
     return;
@@ -128,6 +163,7 @@ async function handleRequest(
     const fields = await parseFormOrMultipart(req);
     const pubTxt = (fields.publicFile || fields.publicText || '').trim();
     const memoTxt = (fields.memoFile || fields.memoText || '').trim();
+    const publisherUsername = (fields.publisherUsername || 'community').replace(/^@/, '').trim() || 'community';
 
     if (!pubTxt && !memoTxt) {
       sendHtml(
@@ -143,14 +179,14 @@ async function handleRequest(
     }
 
     if (pubTxt && memoTxt) {
-      const r = store.importPairTxt(pubTxt, memoTxt);
+      const r = store.importPairTxt(pubTxt, memoTxt, publisherUsername);
       sendHtml(
         res,
         r.ok ? 200 : 400,
         renderImportPage(cfg, {
           ...r,
           message: r.ok && r.paper
-            ? `Successfully imported "${r.paper.title}" (${r.paper.testId} v${r.paper.version}, ${r.paper.questions.length} questions, ${r.paper.totalMarks.toFixed(2)} marks) with validated private memo.`
+            ? `Successfully published "${r.paper.title}" (${r.paper.testId} v${r.paper.version}, ${r.paper.questions.length} questions, ${r.paper.totalMarks.toFixed(2)} marks) by @${publisherUsername}.`
             : undefined,
         }),
       );
@@ -158,14 +194,14 @@ async function handleRequest(
     }
 
     if (pubTxt) {
-      const r = store.importPublicTxt(pubTxt);
+      const r = store.importPublicTxt(pubTxt, publisherUsername);
       sendHtml(
         res,
         r.ok ? 200 : 400,
         renderImportPage(cfg, {
           ...r,
           message: r.ok && r.paper
-            ? `Imported public paper "${r.paper.title}" (${r.paper.testId} v${r.paper.version}). Import its matching private memo before starting an attempt.`
+            ? `Imported public paper "${r.paper.title}" (${r.paper.testId} v${r.paper.version}) by @${publisherUsername}. Import its matching private memo before starting an attempt.`
             : undefined,
         }),
       );
@@ -194,14 +230,20 @@ async function handleRequest(
   }
 
   if (method === 'POST' && pathname === '/api/import') {
-    const body = (await readJsonBody(req)) as { publicTxt?: string; memoTxt?: string };
+    const body = (await readJsonBody(req)) as {
+      publicTxt?: string;
+      memoTxt?: string;
+      publisherUsername?: string;
+      publisherId?: string;
+    };
+    const pubUser = (body.publisherUsername || 'community').replace(/^@/, '').trim() || 'community';
     if (body.publicTxt && body.memoTxt) {
-      const r = store.importPairTxt(body.publicTxt, body.memoTxt);
+      const r = store.importPairTxt(body.publicTxt, body.memoTxt, pubUser, body.publisherId ?? null);
       sendJson(res, r.ok ? 200 : 400, { ok: r.ok, errors: r.errors, warnings: r.warnings, testId: r.paper?.testId, version: r.paper?.version });
       return;
     }
     if (body.publicTxt) {
-      const r = store.importPublicTxt(body.publicTxt);
+      const r = store.importPublicTxt(body.publicTxt, pubUser, body.publisherId ?? null);
       sendJson(res, r.ok ? 200 : 400, { ok: r.ok, errors: r.errors, warnings: r.warnings, testId: r.paper?.testId, version: r.paper?.version });
       return;
     }

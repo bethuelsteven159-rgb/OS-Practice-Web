@@ -49,15 +49,18 @@ const TILE_ICON_WRONG = `<svg class="qn-status-icon" viewBox="0 0 12 12" aria-hi
   <path d="M4.1 4.1l3.8 3.8M7.9 4.1l-3.8 3.8" fill="none" stroke="#B62C1D" stroke-width="1.2" stroke-linecap="round"/>
 </svg>`;
 
-const BELL_SVG = `<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-  <path d="M8 16a2 2 0 0 0 1.985-1.75H6.015A2 2 0 0 0 8 16zm.995-14.901a1 1 0 1 0-1.99 0A5.002 5.002 0 0 0 3 6c0 1.098-.5 6-2 7h14c-1.5-1-2-5.902-2-7 0-2.42-1.72-4.44-4.005-4.901z"/>
-</svg>`;
-
 const COURSE_INDEX_ICON_SVG = `<svg width="14" height="12" viewBox="0 0 14 12" fill="currentColor" aria-hidden="true">
   <circle cx="1.5" cy="2" r="1.2"/><rect x="4" y="1.1" width="9" height="1.8" rx="0.5"/>
   <circle cx="1.5" cy="6" r="1.2"/><rect x="4" y="5.1" width="9" height="1.8" rx="0.5"/>
   <circle cx="1.5" cy="10" r="1.2"/><rect x="4" y="9.1" width="9" height="1.8" rx="0.5"/>
 </svg>`;
+
+export interface UserSessionInfo {
+  id: string;
+  username: string;
+  email?: string;
+  avatarUrl?: string;
+}
 
 // ---------- Shared Shell Layout ----------
 
@@ -69,16 +72,39 @@ interface ShellOptions {
   activityTitle?: string;
   rightDrawerHtml?: string;
   dataAttrs?: Record<string, string | number>;
+  currentUser?: UserSessionInfo | null;
   bodyHtml: string;
 }
 
+function getInitials(nameOrUser: string): string {
+  const clean = (nameOrUser || '').replace(/^@/, '').trim();
+  if (!clean) return 'U';
+  const parts = clean.split(/[\s._-]+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return clean.slice(0, 2).toUpperCase();
+}
+
 function renderShell(opts: ShellOptions): string {
-  const { cfg } = opts;
+  const { cfg, currentUser } = opts;
   const course = opts.courseName || cfg.courseName;
   const section = opts.sectionName || cfg.sectionName;
   const attrs = Object.entries(opts.dataAttrs ?? {})
     .map(([k, v]) => `data-${k}="${esc(v)}"`)
     .join(' ');
+
+  const userNavbarHtml = currentUser
+    ? `<div id="navbar-user-slot" class="navbar-user-slot">
+        <span class="nav-publisher-pill" title="Logged in publisher username">@${esc(currentUser.username)}</span>
+        <span class="user-menu" title="${esc(currentUser.email || currentUser.username)}">
+          <span class="user-avatar">${esc(getInitials(currentUser.username))}</span>
+        </span>
+        <button type="button" class="btn-moodle btn-sm-nav" data-signout-btn="1">Sign out</button>
+      </div>`
+    : `<div id="navbar-user-slot" class="navbar-user-slot">
+        <a class="btn-moodle btn-moodle-primary btn-sm-nav" href="/login">Sign in / Register</a>
+      </div>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -87,15 +113,15 @@ function renderShell(opts: ShellOptions): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${esc(opts.title)}</title>
   <link rel="stylesheet" href="/public/moodle.css">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <header class="moodle-navbar">
     <div class="navbar-left">
       <a class="brand-ms" href="/practice">${esc(cfg.siteShortName)}</a>
       <ul class="nav-links">
-        <li><a href="/practice">Home</a></li>
+        <li><a href="/practice" class="active">Home</a></li>
         <li><a href="/practice">Dashboard</a></li>
-        <li><a href="/practice" class="active">My courses</a></li>
       </ul>
     </div>
     <div class="navbar-right">
@@ -104,14 +130,7 @@ function renderShell(opts: ShellOptions): string {
           ? `<button type="button" id="mobile-drawer-toggle" class="btn-moodle mobile-nav-toggle">Quiz navigation</button>`
           : ''
       }
-      <span class="bell-wrapper" title="Notifications">
-        ${BELL_SVG}
-        <span class="bell-badge">95</span>
-      </span>
-      <span class="user-menu">
-        <span class="user-avatar">${esc(cfg.userInitials)}</span>
-        <span class="user-caret">▾</span>
-      </span>
+      ${userNavbarHtml}
     </div>
   </header>
 
@@ -767,25 +786,234 @@ export function renderFinishConfirmPage(p: FinishConfirmParams): string {
   });
 }
 
-// ---------- Practice Exam Library Index (`/practice`) ----------
+// ---------- Downloadable Test Creation Guide & Templates ----------
 
-export function renderLibraryPage(cfg: AppConfig, tests: TestSummaryRow[], serverNow: number, msg?: string): string {
+export const SAMPLE_PUBLIC_TEMPLATE = `{
+  "schemaVersion": "1.0",
+  "kind": "public_questions",
+  "testId": "custom-test-1",
+  "version": 1,
+  "title": "My Custom Practice Test 1",
+  "courseName": "COMS3010A-OS-SM2-2026",
+  "sectionName": "Community Practice Tests",
+  "durationSeconds": 7200,
+  "totalMarks": 6,
+  "questions": [
+    {
+      "id": "q1",
+      "number": 1,
+      "marks": 6,
+      "stem": [
+        "Paragraph of stem text supporting **bold**, *italics*, \`inline_code\`, and \\\\(123\\\\) math.",
+        {
+          "type": "code",
+          "boxed": true,
+          "text": "int pid = fork();\\nif (pid == 0) { /* child */ }"
+        }
+      ],
+      "parts": [
+        {
+          "id": "a",
+          "label": "(a)",
+          "type": "integer",
+          "marks": 2,
+          "prompt": "What integer value does fork() return to the child process?",
+          "answerInputHint": "(a whole number - do not type the unit)",
+          "inputWidth": 11
+        },
+        {
+          "id": "b",
+          "label": "(b)",
+          "type": "list",
+          "marks": 2,
+          "prompt": "Enter the page frame list [0, 1, 2, 3]:",
+          "answerInputHint": "(a list of four numbers in square brackets)",
+          "inputWidth": 22
+        },
+        {
+          "id": "c",
+          "label": "(c)",
+          "type": "dropdown",
+          "marks": 2,
+          "prompt": "Which CPU mode executes privileged instructions?",
+          "choices": [
+            { "id": "c1", "label": "User mode" },
+            { "id": "c2", "label": "Kernel mode" },
+            { "id": "c3", "label": "DMA mode" }
+          ]
+        }
+      ]
+    }
+  ]
+}`;
+
+export const SAMPLE_MEMO_TEMPLATE = `{
+  "schemaVersion": "1.0",
+  "kind": "private_memo",
+  "testId": "custom-test-1",
+  "version": 1,
+  "totalMarks": 6,
+  "questions": {
+    "q1": {
+      "solution": [
+        "Detailed worked explanation shown in the pale-orange review panel after the student submits.",
+        {
+          "type": "ul",
+          "items": [
+            "**Part (a):** \`fork()\` returns \`0\` in the child process and the child's PID in the parent.",
+            "**Part (b):** The frames in order are \`[0, 1, 2, 3]\`.",
+            "**Part (c):** Privileged instructions require **Kernel mode**."
+          ]
+        }
+      ],
+      "parts": {
+        "a": {
+          "marks": 2,
+          "grader": { "type": "integer", "answer": 0 },
+          "feedback": ["Recall that fork() returns 0 to the newly created child process."]
+        },
+        "b": {
+          "marks": 2,
+          "grader": {
+            "type": "list",
+            "answer": [0, 1, 2, 3],
+            "items": "integer",
+            "ordered": true,
+            "partial": "positional"
+          }
+        },
+        "c": {
+          "marks": 2,
+          "grader": { "type": "choice", "answer": "c2" }
+        }
+      }
+    }
+  }
+}`;
+
+export const GUIDE_DOWNLOAD_TEXT = `# OS Practice Web — Test Creation & Publishing Guide
+====================================================================
+
+Anyone with an account can create and publish practice tests!
+When you upload or paste your paired files on the "Create / Publish Test" (/import) page,
+your test is validated and AUTOMATICALLY PUBLISHED so all users can practice it and
+filter by your Publisher Username.
+
+--------------------------------------------------------------------
+1. HOW PAIRED TEST FILES WORK
+--------------------------------------------------------------------
+Every test consists of two UTF-8 .txt files (containing JSON or Tagged Text):
+  1) <name>.public.txt  — Questions, stems, subparts, marks, and dropdown options.
+                          (Must NOT contain answers or solutions.)
+  2) <name>.memo.txt    — Answers, grading rules, tolerances, and worked solutions.
+                          (Kept secret during an active attempt; revealed only in Review.)
+
+Both files MUST share the exact same:
+  - "testId" (e.g. "os-paging-quiz-1" — lowercase letters, digits, hyphens)
+  - "version" (e.g. 1)
+  - "totalMarks" (must equal the sum of all question marks, and each question's marks
+                  must equal the sum of its subpart marks)
+
+--------------------------------------------------------------------
+2. SUPPORTED QUESTION SUBPART & GRADER TYPES
+--------------------------------------------------------------------
+- "integer"      -> Grader: { "type": "integer", "answer": 112, "accept": [112] }
+- "decimal"      -> Grader: { "type": "decimal", "answer": 2.5, "absTol": 0.01 }
+- "binary"       -> Grader: { "type": "binary", "answer": "00001011", "width": 8 }
+- "list"         -> Grader: { "type": "list", "answer": [1, 2, 3], "items": "integer", "ordered": true, "partial": "positional" }
+- "dropdown"     -> Grader: { "type": "choice", "answer": "c2" }
+- "radio"        -> Grader: { "type": "choice", "answer": "c1" }
+- "checkbox"     -> Grader: { "type": "multichoice", "answers": ["c1", "c3"], "partial": "proportional" }
+- "text"         -> Grader: { "type": "text", "accept": ["page fault", "trap"], "caseSensitive": false }
+
+--------------------------------------------------------------------
+3. STARTER TEMPLATE 1: <name>.public.txt
+--------------------------------------------------------------------
+${SAMPLE_PUBLIC_TEMPLATE}
+
+--------------------------------------------------------------------
+4. STARTER TEMPLATE 2: <name>.memo.txt
+--------------------------------------------------------------------
+${SAMPLE_MEMO_TEMPLATE}
+`;
+
+// ---------- Practice Exam Library Index (\`/practice\`) ----------
+
+export function renderLibraryPage(
+  cfg: AppConfig,
+  tests: TestSummaryRow[],
+  serverNow: number,
+  msg?: string,
+  filterPublisher?: string,
+  currentUser?: UserSessionInfo | null,
+): string {
+  const activeFilter = (filterPublisher || '').trim().replace(/^@/, '').toLowerCase();
+
+  // Collect distinct publisher usernames across all loaded tests
+  const publishers = Array.from(
+    new Set(
+      tests
+        .map((t) => (t.publisherUsername || 'community').trim())
+        .filter(Boolean),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
+
+  const visibleTests = activeFilter
+    ? tests.filter((t) => (t.publisherUsername || 'community').toLowerCase().includes(activeFilter))
+    : tests;
+
+  const filterBarHtml = `
+    <div class="publisher-filter-bar" role="search" aria-label="Filter tests by publisher username">
+      <div class="filter-bar-left">
+        <label for="publisher-search-input" style="font-weight:700;font-size:11.5px;white-space:nowrap;">Filter by Publisher:</label>
+        <input
+          type="search"
+          id="publisher-search-input"
+          class="ans-input filter-search-input"
+          placeholder="Search @username or quiz title..."
+          value="${esc(filterPublisher || '')}"
+        >
+        <select id="publisher-select" class="ans-select filter-select" aria-label="Select publisher username">
+          <option value="">All publishers (${publishers.length})</option>
+          ${publishers
+            .map(
+              (pub) =>
+                `<option value="${esc(pub)}" ${pub.toLowerCase() === activeFilter ? 'selected' : ''}>@${esc(pub)}</option>`,
+            )
+            .join('')}
+        </select>
+        ${
+          currentUser
+            ? `<button type="button" class="btn-moodle" data-filter-publisher="${esc(currentUser.username)}">My tests (@${esc(currentUser.username)})</button>`
+            : ''
+        }
+        <button type="button" id="publisher-clear-btn" class="btn-moodle" style="${activeFilter ? '' : 'display:none;'}">Show all</button>
+      </div>
+      <div id="publisher-filter-count" style="font-size:11px;color:#6A737B;">
+        Showing <strong>${visibleTests.length}</strong> of <strong>${tests.length}</strong> published test(s)
+      </div>
+    </div>`;
+
   const emptyHtml = `
     <div class="alert-moodle alert-warn" style="margin-top:12px;">
       <strong>No test imported</strong>
       <p style="margin:6px 0 0 0;">
-        No practice papers are currently loaded. Import a paired <strong>PUBLIC questions (.txt)</strong> file and <strong>PRIVATE memo (.txt)</strong> file via the <a href="/import">Import test files</a> screen or via the CLI command:
+        No practice papers are currently loaded. Download the creation guide and publish your own paired <strong>PUBLIC questions (.txt)</strong> and <strong>PRIVATE memo (.txt)</strong> files via the <a href="/import">Create / Publish Test</a> screen:
       </p>
-      <pre class="qcode boxed" style="margin-top:8px;">npm run import -- --public path/to/practice1.public.txt --memo path/to/practice1.memo.txt</pre>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+        <a class="btn-moodle btn-moodle-primary" href="/import">Create / Publish Test (.txt)</a>
+        <a class="btn-moodle" href="/guide/download" data-download-guide="full">Download Test Creation Guide (.txt)</a>
+      </div>
     </div>`;
 
   const tableHtml =
     tests.length === 0
       ? emptyHtml
-      : `<table class="generaltable">
+      : `<table class="generaltable" id="published-tests-table">
           <thead>
             <tr>
               <th>Quiz</th>
+              <th>Published by</th>
               <th>Version</th>
               <th>Questions</th>
               <th>Marks</th>
@@ -796,11 +1024,12 @@ export function renderLibraryPage(cfg: AppConfig, tests: TestSummaryRow[], serve
             </tr>
           </thead>
           <tbody>
-            ${tests
+            ${visibleTests
               .map((t) => {
                 const openAtt = t.attempts.find((a) => a.status === 'in_progress');
                 const finished = t.attempts.filter((a) => a.status !== 'in_progress');
                 const lastDone = finished[finished.length - 1];
+                const pubName = (t.publisherUsername || 'community').trim();
 
                 let stateBadge = 'Not started';
                 if (!t.hasMemo) {
@@ -827,10 +1056,15 @@ export function renderLibraryPage(cfg: AppConfig, tests: TestSummaryRow[], serve
                     ? 'View / Re-attempt'
                     : 'Open quiz';
 
-                return `<tr>
+                return `<tr data-test-row="1" data-publisher="${esc(pubName.toLowerCase())}" data-title="${esc(t.title.toLowerCase())}">
                   <td>
                     <a href="/practice/${encodeURIComponent(t.testId)}/start?version=${t.version}"><strong>${esc(t.title)}</strong></a>
-                    ${t.isFixture ? `<span class="fixture-tag">ARTIFICIAL FIXTURE</span>` : ''}
+                    ${t.isFixture ? `<span class="fixture-tag">SAMPLE</span>` : ''}
+                  </td>
+                  <td>
+                    <button type="button" class="publisher-badge" data-filter-publisher="${esc(pubName)}" title="Filter tests published by @${esc(pubName)}">
+                      @${esc(pubName)}
+                    </button>
                   </td>
                   <td>v${t.version}</td>
                   <td>${t.questionCount}</td>
@@ -852,11 +1086,9 @@ export function renderLibraryPage(cfg: AppConfig, tests: TestSummaryRow[], serve
           </tbody>
         </table>`;
 
-  const hasFixtures = tests.some((t) => t.isFixture);
-
   const bodyHtml = `
-    <div class="moodle-box" style="margin-left:0;max-width:1000px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+    <div class="moodle-box" style="margin-left:0;max-width:1040px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
         <div>
           <nav class="breadcrumb-nav">
             <span>${esc(cfg.courseName)}</span>
@@ -865,37 +1097,34 @@ export function renderLibraryPage(cfg: AppConfig, tests: TestSummaryRow[], serve
           </nav>
           <h1 class="activity-title" style="font-size:20px;">Practice Quizzes</h1>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <a class="btn-moodle btn-moodle-primary" href="/import">Import paired TXT files</a>
-          ${
-            hasFixtures
-              ? `<form method="POST" action="/admin/clear-fixtures" onsubmit="return confirm('Remove all artificial developer fixture papers and their attempts? Real practice attempts will not be touched.');" style="margin:0;">
-                  <button type="submit" class="btn-moodle">Clear fixture data</button>
-                </form>`
-              : ''
-          }
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <a class="btn-moodle" href="/guide/download" data-download-guide="full">Download Test Guide (.txt)</a>
+          <a class="btn-moodle btn-moodle-primary" href="/import">Create / Publish Test (Import TXT)</a>
         </div>
       </div>
       ${msg ? `<div class="alert-moodle alert-ok">${esc(msg)}</div>` : ''}
+      ${filterBarHtml}
       ${tableHtml}
     </div>`;
 
   return renderShell({
     title: `${cfg.courseName} - Practice Quizzes`,
     cfg,
+    currentUser,
     bodyHtml,
   });
 }
 
-// ---------- Local Admin Import Page (`/import`) ----------
+// ---------- Create & Auto-Publish Test Page (\`/import\`) ----------
 
 export function renderImportPage(
   cfg: AppConfig,
   result?: { ok: boolean; errors: string[]; warnings: string[]; message?: string },
+  currentUser?: UserSessionInfo | null,
 ): string {
   const reportHtml = result
     ? `<div class="alert-moodle ${result.ok ? 'alert-ok' : 'alert-error'}">
-        <strong>${result.ok ? esc(result.message || 'Import succeeded.') : 'Import validation failed:'}</strong>
+        <strong>${result.ok ? esc(result.message || 'Test validated and published!') : 'Validation failed:'}</strong>
         ${
           result.errors.length
             ? `<ul style="margin:6px 0 0 18px;">${result.errors.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>`
@@ -909,21 +1138,57 @@ export function renderImportPage(
       </div>`
     : '';
 
+  const publisherBannerHtml = currentUser
+    ? `<div class="alert-moodle alert-ok" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <div>
+          Publishing as <strong>@${esc(currentUser.username)}</strong> — your test will be automatically published to all users upon import.
+        </div>
+      </div>`
+    : `<div id="import-guest-banner" class="alert-moodle alert-warn" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <div>
+          <strong>Want your test published under your username?</strong> Sign in with Google or register a publisher username first.
+        </div>
+        <a class="btn-moodle btn-moodle-primary" href="/login">Sign in / Register</a>
+      </div>`;
+
   const bodyHtml = `
-    <div class="moodle-box" style="margin-left:0;max-width:920px;">
+    <div class="moodle-box" style="margin-left:0;max-width:940px;">
       <nav class="breadcrumb-nav">
         <a href="/practice">${esc(cfg.courseName)}</a>
         <span class="breadcrumb-sep">/</span>
-        <span>Import paired TXT files</span>
+        <span>Create &amp; Publish Practice Test</span>
       </nav>
-      <h1 class="activity-title" style="font-size:20px;margin-bottom:12px;">Import Practice Test Pair (.txt)</h1>
+      <h1 class="activity-title" style="font-size:20px;margin-bottom:12px;">Create &amp; Automatically Publish Practice Test (.txt)</h1>
       ${reportHtml}
-      <p>
-        Supply the <strong>PUBLIC QUESTIONS (.txt)</strong> file and the matching <strong>PRIVATE MEMO (.txt)</strong> file.
-        You may also import the public file alone to preview its metadata, and import the private memo afterwards before starting an attempt.
-      </p>
+      ${publisherBannerHtml}
+
+      <div class="guide-download-card">
+        <div style="font-weight:700;margin-bottom:4px;">Need the format guide or starter files to create your own questions &amp; answers?</div>
+        <p style="margin:0 0 8px 0;color:#495057;">
+          Download the guide and starter templates below, edit your questions and memo solutions, then upload or paste both files below to automatically publish your test.
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <a class="btn-moodle" href="/guide/download?type=full" data-download-guide="full">Download Full Guide (.txt)</a>
+          <a class="btn-moodle" href="/guide/download?type=public" data-download-guide="public">Download Public Questions Template (.public.txt)</a>
+          <a class="btn-moodle" href="/guide/download?type=memo" data-download-guide="memo">Download Private Memo Template (.memo.txt)</a>
+        </div>
+      </div>
 
       <form method="POST" action="/import" enctype="multipart/form-data" style="background:#F8F9FA;border:1px solid #CAD0D7;padding:14px;border-radius:4px;margin-top:12px;">
+        <div style="margin-bottom:12px;">
+          <label style="display:block;font-weight:700;margin-bottom:4px;" for="publisherUsernameInput">Publisher Username</label>
+          <input
+            type="text"
+            id="publisherUsernameInput"
+            name="publisherUsername"
+            class="ans-input"
+            style="width:260px;height:28px;"
+            value="${esc(currentUser?.username || '')}"
+            placeholder="e.g. bethuel (set when signed in)"
+            ${currentUser ? 'readonly' : ''}
+          >
+        </div>
+
         <div style="margin-bottom:12px;">
           <label style="display:block;font-weight:700;margin-bottom:4px;" for="publicFile">1. Public Questions (.txt)</label>
           <input type="file" id="publicFile" name="publicFile" accept=".txt,.json">
@@ -941,15 +1206,146 @@ export function renderImportPage(
         </div>
 
         <div style="display:flex;gap:10px;align-items:center;">
-          <button type="submit" class="btn-moodle btn-moodle-primary">Validate &amp; Import</button>
+          <button type="submit" class="btn-moodle btn-moodle-primary">Validate &amp; Publish Test</button>
           <a class="btn-moodle" href="/practice">Return to Practice Quizzes</a>
         </div>
       </form>
     </div>`;
 
   return renderShell({
-    title: 'Import Practice Test Pair',
+    title: 'Create & Publish Practice Test',
     cfg,
+    currentUser,
+    bodyHtml,
+  });
+}
+
+// ---------- User Authentication & Publisher Registration Page (\`/login\`) ----------
+
+export function renderAuthPage(
+  cfg: AppConfig,
+  opts?: {
+    errorMsg?: string;
+    infoMsg?: string;
+    needsUsernameOnly?: boolean;
+    suggestedUsername?: string;
+    currentUser?: UserSessionInfo | null;
+  },
+): string {
+  const errHtml = opts?.errorMsg
+    ? `<div id="auth-error-box" class="alert-moodle alert-error">${esc(opts.errorMsg)}</div>`
+    : `<div id="auth-error-box" class="alert-moodle alert-error" style="display:none;"></div>`;
+  const infoHtml = opts?.infoMsg
+    ? `<div id="auth-info-box" class="alert-moodle alert-ok">${esc(opts.infoMsg)}</div>`
+    : `<div id="auth-info-box" class="alert-moodle alert-ok" style="display:none;"></div>`;
+
+  const completeUsernameSection = `
+    <div id="complete-username-card" class="auth-card" style="${opts?.needsUsernameOnly ? '' : 'display:none;'}margin-bottom:16px;border-color:#0F6CBF;">
+      <h2 style="font-size:16px;margin:0 0 8px 0;">Choose Your Publisher Username</h2>
+      <p style="margin:0 0 12px 0;color:#495057;">
+        Welcome! Enter the unique <strong>Publisher Username</strong> that will appear on tests you publish and allow other students to filter tests by your name.
+      </p>
+      <form id="complete-username-form" onsubmit="return false;">
+        <div style="margin-bottom:10px;">
+          <label style="display:block;font-weight:700;margin-bottom:4px;" for="choose-username-input">Publisher Username</label>
+          <input
+            type="text"
+            id="choose-username-input"
+            name="username"
+            class="ans-input"
+            style="width:100%;max-width:320px;height:30px;"
+            placeholder="e.g. bethuel_os"
+            value="${esc(opts?.suggestedUsername || '')}"
+            required
+            minlength="2"
+            maxlength="40"
+          >
+          <div class="input-syntax-hint">2–40 characters. Used to tag and filter tests you publish.</div>
+        </div>
+        <button type="submit" class="btn-moodle btn-moodle-primary">Save Username &amp; Continue</button>
+      </form>
+    </div>`;
+
+  const bodyHtml = `
+    <div class="moodle-box" style="margin-left:0;max-width:780px;">
+      <nav class="breadcrumb-nav">
+        <a href="/practice">Home</a>
+        <span class="breadcrumb-sep">/</span>
+        <span>Sign in &amp; Publisher Registration</span>
+      </nav>
+      <h1 class="activity-title" style="font-size:20px;margin-bottom:12px;">Sign in to Save Progress &amp; Publish Tests</h1>
+      ${errHtml}
+      ${infoHtml}
+      ${completeUsernameSection}
+
+      <div id="main-auth-panels" style="${opts?.needsUsernameOnly ? 'display:none;' : ''}">
+        <!-- Google Sign-In Card (Primary for spam/duplicate account prevention) -->
+        <div class="auth-card" style="margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div>
+              <h2 style="font-size:15px;margin:0 0 4px 0;">1. Sign in with Google (Recommended)</h2>
+              <p style="margin:0;color:#495057;font-size:11.5px;">
+                Verified Google login prevents spam accounts, saves your quiz attempts &amp; grades to the cloud, and lets you publish tests under your username.
+              </p>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start;">
+              <div id="google-gsi-button"></div>
+              <button type="button" id="google-oauth-btn" class="btn-google-oauth">
+                <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                  <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+                </svg>
+                <span>Continue with Google</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Email + Publisher Username Registration & Login Grid -->
+        <div class="auth-grid">
+          <div class="auth-card">
+            <h2 style="font-size:15px;margin:0 0 8px 0;">Sign in with Existing Account</h2>
+            <form id="email-signin-form" onsubmit="return false;">
+              <div style="margin-bottom:10px;">
+                <label style="display:block;font-weight:700;margin-bottom:3px;" for="signin-email">Email</label>
+                <input type="email" id="signin-email" class="ans-input" style="width:100%;height:28px;" required placeholder="you@example.com">
+              </div>
+              <div style="margin-bottom:12px;">
+                <label style="display:block;font-weight:700;margin-bottom:3px;" for="signin-password">Password</label>
+                <input type="password" id="signin-password" class="ans-input" style="width:100%;height:28px;" required placeholder="••••••••">
+              </div>
+              <button type="submit" class="btn-moodle btn-moodle-primary">Sign in</button>
+            </form>
+          </div>
+
+          <div class="auth-card">
+            <h2 style="font-size:15px;margin:0 0 8px 0;">Register New Publisher Account</h2>
+            <form id="email-register-form" onsubmit="return false;">
+              <div style="margin-bottom:10px;">
+                <label style="display:block;font-weight:700;margin-bottom:3px;" for="reg-username">Publisher Username (shown on your tests)</label>
+                <input type="text" id="reg-username" class="ans-input" style="width:100%;height:28px;" required minlength="2" maxlength="40" placeholder="e.g. bethuel">
+              </div>
+              <div style="margin-bottom:10px;">
+                <label style="display:block;font-weight:700;margin-bottom:3px;" for="reg-email">Email</label>
+                <input type="email" id="reg-email" class="ans-input" style="width:100%;height:28px;" required placeholder="you@example.com">
+              </div>
+              <div style="margin-bottom:12px;">
+                <label style="display:block;font-weight:700;margin-bottom:3px;" for="reg-password">Password (min 6 chars)</label>
+                <input type="password" id="reg-password" class="ans-input" style="width:100%;height:28px;" required minlength="6" placeholder="••••••••">
+              </div>
+              <button type="submit" class="btn-moodle btn-moodle-primary">Register &amp; Save Username</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  return renderShell({
+    title: 'Sign in - OS Practice Quizzes',
+    cfg,
+    currentUser: opts?.currentUser,
     bodyHtml,
   });
 }

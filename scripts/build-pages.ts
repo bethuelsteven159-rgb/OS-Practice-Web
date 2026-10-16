@@ -1,9 +1,7 @@
 /**
- * Builds a self-contained static SPA bundle in `dist/` for GitHub Pages deployment.
- *
- * Uses Node's built-in `module.stripTypeScriptTypes` to compile the pure TypeScript
- * modules (`markup.ts`, `graders.ts`, `schema.ts`, `views.ts`) into standard ES modules
- * and pairs them with a browser `localStorage`-backed `BrowserExamStore` and SPA router.
+ * Builds a self-contained static SPA bundle in `dist/` for GitHub Pages deployment,
+ * backed by live Supabase Auth (Google + Publisher Username), Community Published Tests,
+ * and Cloud Attempt Progress Saving (`https://jmlnhajwghcczyxqthsy.supabase.co`).
  */
 
 import fs from 'node:fs';
@@ -28,7 +26,6 @@ for (const file of sharedModules) {
   const srcPath = path.join(ROOT, 'server', file);
   const rawTs = fs.readFileSync(srcPath, 'utf8');
   const stripped = module.stripTypeScriptTypes(rawTs, { mode: 'strip' });
-  // Remove empty type-only imports (`import {   } from './...';`) and rewrite `.ts` to `.js`
   const browserJs = stripped
     .replace(/import\s*\{\s*\}\s*from\s*['"][^'"]+['"]\s*;?/g, '')
     .replace(/(from\s+['"]\.\/[^'"]+)\.ts(['"])/g, '$1.js$2');
@@ -36,23 +33,7 @@ for (const file of sharedModules) {
   fs.writeFileSync(path.join(APP_DIR, outName), browserJs, 'utf8');
 }
 
-// 3. Read fixture files so the GitHub Pages site comes pre-loaded with the sample fixture on first visit
-const fixturePublicTxt = fs.readFileSync(
-  path.join(ROOT, 'fixtures', 'artificial-fixture.public.txt'),
-  'utf8',
-);
-const fixtureMemoTxt = fs.readFileSync(
-  path.join(ROOT, 'fixtures', 'artificial-fixture.memo.txt'),
-  'utf8',
-);
-
-fs.writeFileSync(
-  path.join(APP_DIR, 'fixtures-data.js'),
-  `export const FIXTURE_PUBLIC_TXT = ${JSON.stringify(fixturePublicTxt)};\nexport const FIXTURE_MEMO_TXT = ${JSON.stringify(fixtureMemoTxt)};\n`,
-  'utf8',
-);
-
-// 4. Write BrowserExamStore (`dist/app/browser-store.js`) matching `server/db.ts`
+// 3. Write BrowserExamStore (`dist/app/browser-store.js`) with live Supabase Cloud Sync
 const browserStoreJs = `
 import {
   parseTxtPayload,
@@ -66,9 +47,54 @@ import {
   canonicalTyped,
   canonicalDisplay,
 } from './graders.js';
-import { FIXTURE_PUBLIC_TXT, FIXTURE_MEMO_TXT } from './fixtures-data.js';
 
-const STORAGE_KEY = 'os_practice_web_state_v1';
+export const SUPABASE_URL = 'https://jmlnhajwghcczyxqthsy.supabase.co';
+export const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImptbG5oYWp3Z2hjY3p5eHF0aHN5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTIxNzYyOTQsImV4cCI6MjEwNzc1MjI5NH0.CdnxAlPB1gb6W9yfXn4-d-6w-pSSiMLl07J1pphG-_c';
+export const GOOGLE_CLIENT_ID = '978326581212-5d4k827fn4ao9ttd0nko2747scdndor4.apps.googleusercontent.com';
+
+const STORAGE_KEY = 'os_practice_web_state_v2';
+const SESSION_KEY = 'os_practice_sb_session_v1';
+
+export function getSavedSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveSession(sess) {
+  try {
+    if (!sess) localStorage.removeItem(SESSION_KEY);
+    else localStorage.setItem(SESSION_KEY, JSON.stringify(sess));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export async function sbFetch(path, opts = {}) {
+  const sess = getSavedSession();
+  const token = opts.token || sess?.access_token || SUPABASE_ANON_KEY;
+  const headers = {
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: \`Bearer \${token}\`,
+    'Content-Type': 'application/json',
+    ...(opts.headers || {}),
+  };
+  const res = await fetch(\`\${SUPABASE_URL}\${path}\`, {
+    ...opts,
+    headers,
+  });
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+  return { ok: res.ok, status: res.status, data };
+}
 
 function randomHex(bytes = 8) {
   const arr = new Uint8Array(bytes);
@@ -110,11 +136,6 @@ function buildAcceptedLine(part, pMemo) {
 export class BrowserExamStore {
   constructor() {
     this.state = this._load();
-    if (!this.state.seededInitialFixture) {
-      this.importPairTxt(FIXTURE_PUBLIC_TXT, FIXTURE_MEMO_TXT);
-      this.state.seededInitialFixture = true;
-      this._save();
-    }
   }
 
   _load() {
@@ -128,8 +149,7 @@ export class BrowserExamStore {
       // Ignore storage errors
     }
     return {
-      seededInitialFixture: false,
-      tests: {},       // key: \`\${testId}@\${version}\` -> { paper, memo, importedAt }
+      tests: {},       // key: \`\${testId}@\${version}\` -> { paper, memo, importedAt, publisherUsername, publisherId }
       attempts: {},    // key: attemptId -> AttemptSummaryRow
       responses: {},   // key: attemptId -> { [questionId]: { [partId]: rawValue } }
       flags: {},       // key: attemptId -> { [questionId]: boolean }
@@ -149,7 +169,131 @@ export class BrowserExamStore {
     return \`\${testId}@\${version}\`;
   }
 
-  importPublicTxt(rawTxt) {
+  async syncFromSupabase() {
+    try {
+      // 1. Pull all community published tests
+      const tRes = await sbFetch('/rest/v1/published_tests?select=*&order=created_at.asc', {
+        token: SUPABASE_ANON_KEY,
+      });
+      if (tRes.ok && Array.isArray(tRes.data)) {
+        for (const row of tRes.data) {
+          const paper = row.public_payload;
+          const memo = row.memo_payload;
+          if (!paper || !paper.testId) continue;
+          const key = this._testKey(paper.testId, paper.version || row.version || 1);
+          this.state.tests[key] = {
+            paper,
+            memo: memo || null,
+            importedAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+            publisherUsername: row.publisher_username || 'community',
+            publisherId: row.publisher_id || null,
+          };
+        }
+      }
+
+      // 2. If signed in, pull user's cloud attempts
+      const sess = getSavedSession();
+      if (sess?.user?.id && sess?.access_token) {
+        const aRes = await sbFetch(
+          \`/rest/v1/user_attempts?user_id=eq.\${encodeURIComponent(sess.user.id)}&select=*&order=started_at.asc\`,
+          { token: sess.access_token },
+        );
+        if (aRes.ok && Array.isArray(aRes.data)) {
+          for (const row of aRes.data) {
+            const attId = row.attempt_id;
+            this.state.attempts[attId] = {
+              attemptId: attId,
+              testId: row.test_id,
+              testVersion: Number(row.test_version || 1),
+              startedAt: Number(row.started_at),
+              deadlineAt: Number(row.deadline_at),
+              submittedAt: row.submitted_at != null ? Number(row.submitted_at) : null,
+              status: row.status,
+              marksAwarded: row.marks_awarded != null ? Number(row.marks_awarded) : null,
+              totalMarks: Number(row.total_marks),
+            };
+            if (row.responses_json && typeof row.responses_json === 'object') {
+              this.state.responses[attId] = row.responses_json;
+            }
+            if (row.flags_json && typeof row.flags_json === 'object') {
+              this.state.flags[attId] = row.flags_json;
+            }
+            if (row.review_json && typeof row.review_json === 'object') {
+              this.state.reviews[attId] = row.review_json;
+            }
+          }
+        }
+      }
+      this._save();
+    } catch {
+      // Offline fallback uses local state
+    }
+  }
+
+  async publishTestToSupabase(paper, memo, publisherUsername, publisherId) {
+    const sess = getSavedSession();
+    const pubUser = (publisherUsername || sess?.username || 'community').replace(/^@/, '').trim() || 'community';
+    const pubId = publisherId || sess?.user?.id || null;
+    try {
+      const res = await sbFetch('/rest/v1/published_tests?on_conflict=test_id,version', {
+        method: 'POST',
+        token: sess?.access_token || SUPABASE_ANON_KEY,
+        headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+        body: JSON.stringify({
+          test_id: paper.testId,
+          version: paper.version,
+          title: paper.title,
+          course_name: paper.courseName || null,
+          section_name: paper.sectionName || null,
+          duration_seconds: paper.durationSeconds,
+          total_marks: paper.totalMarks,
+          question_count: paper.questions.length,
+          public_payload: paper,
+          memo_payload: memo,
+          publisher_id: pubId,
+          publisher_username: pubUser,
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      return { ok: res.ok, data: res.data };
+    } catch {
+      return { ok: false };
+    }
+  }
+
+  async syncAttemptToSupabase(attemptId) {
+    const sess = getSavedSession();
+    if (!sess?.user?.id || !sess?.access_token) return;
+    const att = this.state.attempts[attemptId];
+    if (!att) return;
+    try {
+      await sbFetch('/rest/v1/user_attempts?on_conflict=attempt_id', {
+        method: 'POST',
+        token: sess.access_token,
+        headers: { Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify({
+          attempt_id: att.attemptId,
+          user_id: sess.user.id,
+          test_id: att.testId,
+          test_version: att.testVersion,
+          started_at: att.startedAt,
+          deadline_at: att.deadlineAt,
+          submitted_at: att.submittedAt,
+          status: att.status,
+          marks_awarded: att.marksAwarded,
+          total_marks: att.totalMarks,
+          responses_json: this.state.responses[attemptId] || {},
+          flags_json: this.state.flags[attemptId] || {},
+          review_json: this.state.reviews[attemptId] || {},
+          updated_at: new Date().toISOString(),
+        }),
+      });
+    } catch {
+      // Ignore transient network errors
+    }
+  }
+
+  importPublicTxt(rawTxt, publisherUsername = 'community', publisherId = null) {
     const parsed = parseTxtPayload(rawTxt);
     if (!parsed.ok) return { ok: false, errors: [parsed.error], warnings: [] };
     const v = validatePublicPaper(parsed.data);
@@ -162,6 +306,8 @@ export class BrowserExamStore {
       paper: p,
       memo: existing ? existing.memo : null,
       importedAt: Date.now(),
+      publisherUsername: (publisherUsername || 'community').replace(/^@/, '').trim() || 'community',
+      publisherId: publisherId || null,
     };
     this._save();
     return v;
@@ -195,7 +341,7 @@ export class BrowserExamStore {
     return v;
   }
 
-  importPairTxt(publicTxt, memoTxt) {
+  importPairTxt(publicTxt, memoTxt, publisherUsername = 'community', publisherId = null) {
     const pubParsed = parseTxtPayload(publicTxt);
     if (!pubParsed.ok) return { ok: false, errors: [\`Public file: \${pubParsed.error}\`], warnings: [] };
     const pubVal = validatePublicPaper(pubParsed.data);
@@ -218,8 +364,9 @@ export class BrowserExamStore {
       };
     }
 
-    this.importPublicTxt(publicTxt);
+    this.importPublicTxt(publicTxt, publisherUsername, publisherId);
     this.importPrivateMemoTxt(memoTxt);
+    this.publishTestToSupabase(pubVal.paper, memoVal.memo, publisherUsername, publisherId);
     return {
       ok: true,
       errors: [],
@@ -244,9 +391,6 @@ export class BrowserExamStore {
     this.SweepExpiredAttempts(now);
     const entries = Object.values(this.state.tests);
     entries.sort((a, b) => {
-      const fa = a.paper.isFixture ? 1 : 0;
-      const fb = b.paper.isFixture ? 1 : 0;
-      if (fa !== fb) return fa - fb;
       if (a.importedAt !== b.importedAt) return a.importedAt - b.importedAt;
       if (a.paper.testId !== b.paper.testId) return a.paper.testId.localeCompare(b.paper.testId);
       return b.paper.version - a.paper.version;
@@ -266,6 +410,8 @@ export class BrowserExamStore {
         hasMemo: Boolean(entry.memo),
         isFixture: Boolean(p.isFixture),
         importedAt: entry.importedAt,
+        publisherUsername: entry.publisherUsername || 'community',
+        publisherId: entry.publisherId || null,
         attempts: this.listAttemptsForTest(p.testId, p.version),
       };
     });
@@ -299,30 +445,6 @@ export class BrowserExamStore {
     if (v == null) return false;
     const entry = this.state.tests[this._testKey(testId, v)];
     return Boolean(entry && entry.memo);
-  }
-
-  clearFixtures() {
-    let removed = 0;
-    for (const [key, entry] of Object.entries(this.state.tests)) {
-      if (entry.paper.isFixture) {
-        delete this.state.tests[key];
-        removed++;
-        for (const [attId, att] of Object.entries(this.state.attempts)) {
-          if (att.testId === entry.paper.testId && att.testVersion === entry.paper.version) {
-            delete this.state.attempts[attId];
-            delete this.state.responses[attId];
-            delete this.state.flags[attId];
-            delete this.state.reviews[attId];
-          }
-        }
-      }
-    }
-    this._save();
-    return removed;
-  }
-
-  restoreFixtures() {
-    this.importPairTxt(FIXTURE_PUBLIC_TXT, FIXTURE_MEMO_TXT);
   }
 
   startAttempt(testId, version, now = Date.now()) {
@@ -361,6 +483,7 @@ export class BrowserExamStore {
       this.state.flags[attemptId][q.id] = false;
     }
     this._save();
+    this.syncAttemptToSupabase(attemptId);
     return att;
   }
 
@@ -392,6 +515,7 @@ export class BrowserExamStore {
       this.state.responses[attemptId][questionId][partId] = String(val ?? '');
     }
     this._save();
+    this.syncAttemptToSupabase(attemptId);
     return { ok: true, revision: 1, savedAt: now };
   }
 
@@ -403,6 +527,7 @@ export class BrowserExamStore {
     const next = flagged !== undefined ? Boolean(flagged) : !cur;
     this.state.flags[attemptId][questionId] = next;
     this._save();
+    this.syncAttemptToSupabase(attemptId);
     return next;
   }
 
@@ -497,6 +622,7 @@ export class BrowserExamStore {
     att.marksAwarded = round2(totalAwarded);
     this.state.reviews[attemptId] = reviewByQ;
     this._save();
+    this.syncAttemptToSupabase(attemptId);
     return att;
   }
 
@@ -512,15 +638,26 @@ export class BrowserExamStore {
 `;
 fs.writeFileSync(path.join(APP_DIR, 'browser-store.js'), browserStoreJs.trimStart(), 'utf8');
 
-// 5. Write SPA Router & Client Controller (`dist/app/main.js`)
+// 4. Write SPA Router & Client Controller (`dist/app/main.js`)
 const mainJs = `
-import { BrowserExamStore } from './browser-store.js';
+import {
+  BrowserExamStore,
+  SUPABASE_URL,
+  GOOGLE_CLIENT_ID,
+  getSavedSession,
+  saveSession,
+  sbFetch,
+} from './browser-store.js';
 import {
   renderLibraryPage,
   renderImportPage,
+  renderAuthPage,
   renderTestSummaryPage,
   renderQuestionPage,
   renderFinishConfirmPage,
+  GUIDE_DOWNLOAD_TEXT,
+  SAMPLE_PUBLIC_TEMPLATE,
+  SAMPLE_MEMO_TEMPLATE,
 } from './views.js';
 
 const cfg = {
@@ -528,7 +665,7 @@ const cfg = {
   host: '127.0.0.1',
   dbPath: 'localStorage',
   siteShortName: 'MS',
-  userInitials: 'BK',
+  userInitials: 'U',
   courseName: 'COMS3010A-OS-SM2-2026',
   sectionName: 'Practice tests',
   uiScale: 0.8,
@@ -539,12 +676,23 @@ const cfg = {
 const store = new BrowserExamStore();
 let activeIntervals = [];
 
+function getCurrentUserInfo() {
+  const sess = getSavedSession();
+  if (sess && sess.user && sess.username) {
+    return {
+      id: sess.user.id,
+      username: sess.username,
+      email: sess.user.email,
+    };
+  }
+  return null;
+}
+
 function clearActiveIntervals() {
   for (const id of activeIntervals) clearInterval(id);
   activeIntervals = [];
 }
 
-// Background sweep every 1s
 setInterval(() => {
   store.SweepExpiredAttempts(Date.now());
 }, 1000);
@@ -569,34 +717,34 @@ function navigateTo(pathWithQuery, replace = false) {
   }
 }
 
+function triggerTextDownload(filename, text) {
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function renderHtmlStringToDom(htmlStr) {
   clearActiveIntervals();
   const parser = new DOMParser();
   const doc = parser.parseFromString(htmlStr, 'text/html');
   document.title = doc.title || 'OS Practice Quizzes';
 
-  // Remove the server script tag since we initialize client behavior directly
   doc.querySelectorAll('script').forEach((s) => s.remove());
 
-  // Rewrite internal links to hash links so hover/middle-click/bookmarks work seamlessly on GitHub Pages
   doc.querySelectorAll('a[href^="/"]').forEach((a) => {
+    if (a.hasAttribute('data-download-guide')) return;
     const rawHref = a.getAttribute('href');
     if (rawHref) {
       a.setAttribute('data-route-href', rawHref);
       a.setAttribute('href', '#' + rawHref);
     }
   });
-
-  // If on the library page and no tests exist, offer a 1-click button to restore the demo fixture
-  const actionRow = doc.querySelector('.moodle-box div[style*="display:flex;gap:8px;align-items:center;"]');
-  if (actionRow && store.listTests().length === 0) {
-    const restoreBtn = doc.createElement('button');
-    restoreBtn.type = 'button';
-    restoreBtn.className = 'btn-moodle';
-    restoreBtn.textContent = 'Load sample fixture';
-    restoreBtn.setAttribute('data-restore-fixture', '1');
-    actionRow.appendChild(restoreBtn);
-  }
 
   document.body.innerHTML = doc.body.innerHTML;
   window.scrollTo(0, 0);
@@ -608,16 +756,34 @@ function renderCurrentRoute() {
   const url = new URL(rawRoute, 'http://localhost');
   const pathname = decodeURIComponent(url.pathname);
   const now = Date.now();
+  const currentUser = getCurrentUserInfo();
 
   if (pathname === '/' || pathname === '/practice') {
     const msg = url.searchParams.get('msg') ?? undefined;
+    const publisher = url.searchParams.get('publisher') ?? undefined;
     const tests = store.listTests(now);
-    renderHtmlStringToDom(renderLibraryPage(cfg, tests, now, msg));
+    renderHtmlStringToDom(renderLibraryPage(cfg, tests, now, msg, publisher, currentUser));
+    return;
+  }
+
+  if (pathname === '/login') {
+    const sess = getSavedSession();
+    const needsUsernameOnly = Boolean(sess?.user && !sess?.username);
+    const suggestedUsername = (sess?.user?.user_metadata?.full_name || sess?.user?.email?.split('@')[0] || '')
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .toLowerCase();
+    renderHtmlStringToDom(
+      renderAuthPage(cfg, {
+        needsUsernameOnly,
+        suggestedUsername,
+        currentUser,
+      }),
+    );
     return;
   }
 
   if (pathname === '/import') {
-    renderHtmlStringToDom(renderImportPage(cfg));
+    renderHtmlStringToDom(renderImportPage(cfg, undefined, currentUser));
     return;
   }
 
@@ -784,9 +950,250 @@ function renderCurrentRoute() {
   navigateTo('/practice', true);
 }
 
-// ---------- Page Interactions (Flagging, Autosave, Countdown, Forms) ----------
+async function fetchProfile(userId, accessToken) {
+  const r = await sbFetch(\`/rest/v1/profiles?id=eq.\${encodeURIComponent(userId)}&select=*\`, {
+    token: accessToken,
+  });
+  if (r.ok && Array.isArray(r.data) && r.data.length > 0) {
+    return r.data[0];
+  }
+  return null;
+}
+
+async function upsertProfile(userId, username, email, accessToken) {
+  const cleanUsername = String(username || '').replace(/^@/, '').trim();
+  const r = await sbFetch('/rest/v1/profiles?on_conflict=id', {
+    method: 'POST',
+    token: accessToken,
+    headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
+    body: JSON.stringify({
+      id: userId,
+      username: cleanUsername,
+      display_name: cleanUsername,
+      email: email || null,
+      updated_at: new Date().toISOString(),
+    }),
+  });
+  if (!r.ok) {
+    const msg = r.data?.message || r.data?.details || 'Username is already taken or invalid.';
+    throw new Error(msg);
+  }
+  return Array.isArray(r.data) ? r.data[0] : r.data;
+}
 
 function initExamPageInteractions() {
+  // Sign out button
+  document.querySelectorAll('[data-signout-btn]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      saveSession(null);
+      navigateTo('/practice?msg=' + encodeURIComponent('Signed out.'));
+    });
+  });
+
+  // Download guide / template buttons
+  document.querySelectorAll('[data-download-guide]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const kind = btn.getAttribute('data-download-guide') || 'full';
+      if (kind === 'public') {
+        triggerTextDownload('sample.public.txt', SAMPLE_PUBLIC_TEMPLATE);
+      } else if (kind === 'memo') {
+        triggerTextDownload('sample.memo.txt', SAMPLE_MEMO_TEMPLATE);
+      } else {
+        triggerTextDownload('TEST_CREATION_GUIDE.txt', GUIDE_DOWNLOAD_TEXT);
+      }
+    });
+  });
+
+  // Publisher Filter Bar
+  const searchInput = document.getElementById('publisher-search-input');
+  const selectInput = document.getElementById('publisher-select');
+  const clearBtn = document.getElementById('publisher-clear-btn');
+  const countEl = document.getElementById('publisher-filter-count');
+
+  function applyPublisherFilter(rawQuery) {
+    const q = String(rawQuery || '').trim().replace(/^@/, '').toLowerCase();
+    if (searchInput && searchInput.value.replace(/^@/, '').toLowerCase() !== q) {
+      searchInput.value = q;
+    }
+    if (selectInput) {
+      const matchOpt = Array.from(selectInput.options).find((o) => o.value.toLowerCase() === q);
+      selectInput.value = matchOpt ? matchOpt.value : '';
+    }
+    if (clearBtn) {
+      clearBtn.style.display = q ? '' : 'none';
+    }
+    const rows = document.querySelectorAll('tr[data-test-row]');
+    let visible = 0;
+    rows.forEach((row) => {
+      const pub = (row.getAttribute('data-publisher') || '').toLowerCase();
+      const title = (row.getAttribute('data-title') || '').toLowerCase();
+      const show = !q || pub.includes(q) || title.includes(q);
+      row.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    if (countEl && rows.length > 0) {
+      countEl.innerHTML = \`Showing <strong>\${visible}</strong> of <strong>\${rows.length}</strong> published test(s)\`;
+    }
+  }
+
+  if (searchInput) searchInput.addEventListener('input', () => applyPublisherFilter(searchInput.value));
+  if (selectInput) selectInput.addEventListener('change', () => applyPublisherFilter(selectInput.value));
+  if (clearBtn) clearBtn.addEventListener('click', () => applyPublisherFilter(''));
+  document.querySelectorAll('[data-filter-publisher]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      applyPublisherFilter(btn.getAttribute('data-filter-publisher') || '');
+    });
+  });
+
+  // Auth page interactions
+  const gsiContainer = document.getElementById('google-gsi-button');
+  if (gsiContainer && window.google?.accounts?.id) {
+    window.google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: async (response) => {
+        const errBox = document.getElementById('auth-error-box');
+        if (errBox) errBox.style.display = 'none';
+        try {
+          const r = await sbFetch('/auth/v1/token?grant_type=id_token', {
+            method: 'POST',
+            body: JSON.stringify({ provider: 'google', id_token: response.credential }),
+          });
+          if (!r.ok || !r.data?.access_token) {
+            throw new Error(r.data?.error_description || r.data?.msg || 'Google sign-in failed.');
+          }
+          const { access_token, refresh_token, user } = r.data;
+          const prof = await fetchProfile(user.id, access_token);
+          saveSession({ access_token, refresh_token, user, username: prof?.username || null });
+          await store.syncFromSupabase();
+          if (prof?.username) {
+            navigateTo('/practice?msg=' + encodeURIComponent(\`Signed in as @\${prof.username}\`));
+          } else {
+            navigateTo('/login');
+          }
+        } catch (err) {
+          if (errBox) {
+            errBox.textContent = err.message || String(err);
+            errBox.style.display = '';
+          }
+        }
+      },
+    });
+    window.google.accounts.id.renderButton(gsiContainer, {
+      theme: 'outline',
+      size: 'large',
+      text: 'continue_with',
+      width: 250,
+    });
+  }
+
+  const oauthBtn = document.getElementById('google-oauth-btn');
+  if (oauthBtn) {
+    oauthBtn.addEventListener('click', () => {
+      const redirectTo = window.location.origin + window.location.pathname;
+      window.location.href = \`\${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=\${encodeURIComponent(redirectTo)}\`;
+    });
+  }
+
+  const usernameForm = document.getElementById('complete-username-form');
+  if (usernameForm) {
+    usernameForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errBox = document.getElementById('auth-error-box');
+      if (errBox) errBox.style.display = 'none';
+      const curSess = getSavedSession();
+      if (!curSess?.user) return;
+      const username = document.getElementById('choose-username-input')?.value?.trim() || '';
+      try {
+        const prof = await upsertProfile(curSess.user.id, username, curSess.user.email, curSess.access_token);
+        curSess.username = prof.username;
+        saveSession(curSess);
+        await store.syncFromSupabase();
+        navigateTo('/practice?msg=' + encodeURIComponent(\`Welcome, @\${prof.username}!\`));
+      } catch (err) {
+        if (errBox) {
+          errBox.textContent = err.message || String(err);
+          errBox.style.display = '';
+        }
+      }
+    });
+  }
+
+  const signInForm = document.getElementById('email-signin-form');
+  if (signInForm) {
+    signInForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errBox = document.getElementById('auth-error-box');
+      if (errBox) errBox.style.display = 'none';
+      const email = document.getElementById('signin-email')?.value?.trim() || '';
+      const password = document.getElementById('signin-password')?.value || '';
+      try {
+        const r = await sbFetch('/auth/v1/token?grant_type=password', {
+          method: 'POST',
+          body: JSON.stringify({ email, password }),
+        });
+        if (!r.ok || !r.data?.access_token) {
+          throw new Error(r.data?.error_description || r.data?.msg || 'Invalid email or password.');
+        }
+        const { access_token, refresh_token, user } = r.data;
+        const prof = await fetchProfile(user.id, access_token);
+        const fallbackUsername = user.user_metadata?.username || email.split('@')[0];
+        if (!prof) {
+          await upsertProfile(user.id, fallbackUsername, user.email, access_token);
+        }
+        const finalUsername = prof?.username || fallbackUsername;
+        saveSession({ access_token, refresh_token, user, username: finalUsername });
+        await store.syncFromSupabase();
+        navigateTo('/practice?msg=' + encodeURIComponent(\`Signed in as @\${finalUsername}\`));
+      } catch (err) {
+        if (errBox) {
+          errBox.textContent = err.message || String(err);
+          errBox.style.display = '';
+        }
+      }
+    });
+  }
+
+  const regForm = document.getElementById('email-register-form');
+  if (regForm) {
+    regForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const errBox = document.getElementById('auth-error-box');
+      if (errBox) errBox.style.display = 'none';
+      const username = document.getElementById('reg-username')?.value?.replace(/^@/, '').trim() || '';
+      const email = document.getElementById('reg-email')?.value?.trim() || '';
+      const password = document.getElementById('reg-password')?.value || '';
+      try {
+        const check = await sbFetch(\`/rest/v1/profiles?username=ilike.\${encodeURIComponent(username)}&select=id\`);
+        if (check.ok && Array.isArray(check.data) && check.data.length > 0) {
+          throw new Error(\`Username "@\${username}" is already taken. Please choose another.\`);
+        }
+        const r = await sbFetch('/auth/v1/signup', {
+          method: 'POST',
+          body: JSON.stringify({ email, password, data: { username } }),
+        });
+        if (!r.ok) {
+          throw new Error(r.data?.msg || r.data?.error_description || 'Registration failed.');
+        }
+        const accessToken = r.data?.access_token;
+        const refreshToken = r.data?.refresh_token;
+        const user = r.data?.user || r.data;
+        if (accessToken && user?.id) {
+          await upsertProfile(user.id, username, email, accessToken);
+          saveSession({ access_token: accessToken, refresh_token: refreshToken, user, username });
+          await store.syncFromSupabase();
+          navigateTo('/practice?msg=' + encodeURIComponent(\`Registered and signed in as @\${username}!\`));
+        }
+      } catch (err) {
+        if (errBox) {
+          errBox.textContent = err.message || String(err);
+          errBox.style.display = '';
+        }
+      }
+    });
+  }
+
   const root = document.querySelector('[data-exam-page]');
   if (!root) return;
 
@@ -795,15 +1202,6 @@ function initExamPageInteractions() {
   const questionId = root.getAttribute('data-question-id');
   const testId = root.getAttribute('data-test-id');
   const deadlineAt = Number(root.getAttribute('data-deadline-at') || '0');
-
-  // Restore fixture button
-  const restoreBtn = document.querySelector('[data-restore-fixture]');
-  if (restoreBtn) {
-    restoreBtn.addEventListener('click', () => {
-      store.restoreFixtures();
-      navigateTo('/practice?msg=' + encodeURIComponent('Restored sample developer fixture paper.'));
-    });
-  }
 
   // Mobile drawer toggle
   const drawer = document.getElementById('moodle-right-drawer');
@@ -990,27 +1388,33 @@ document.addEventListener('click', (e) => {
 document.addEventListener('submit', async (e) => {
   const form = e.target;
   if (!(form instanceof HTMLFormElement)) return;
+  if (
+    form.id === 'complete-username-form' ||
+    form.id === 'email-signin-form' ||
+    form.id === 'email-register-form' ||
+    form.id === 'question-attempt-form'
+  ) {
+    return;
+  }
   e.preventDefault();
 
   const rawAction = form.getAttribute('action') || '';
   const url = new URL(rawAction, 'http://localhost');
   const pathname = decodeURIComponent(url.pathname);
   const now = Date.now();
-
-  if (pathname === '/admin/clear-fixtures') {
-    const removed = store.clearFixtures();
-    navigateTo(\`/practice?msg=\${encodeURIComponent(\`Removed \${removed} artificial fixture test(s).\`)}\`);
-    return;
-  }
+  const currentUser = getCurrentUserInfo();
 
   if (pathname === '/import') {
     const pubFileInput = form.querySelector('input[name="publicFile"]');
     const memoFileInput = form.querySelector('input[name="memoFile"]');
     const pubTextInput = form.querySelector('textarea[name="publicText"]');
     const memoTextInput = form.querySelector('textarea[name="memoText"]');
+    const pubUserInput = form.querySelector('input[name="publisherUsername"]');
 
     let pubTxt = (pubTextInput?.value || '').trim();
     let memoTxt = (memoTextInput?.value || '').trim();
+    const publisherUsername =
+      (currentUser?.username || pubUserInput?.value || 'community').replace(/^@/, '').trim() || 'community';
 
     if (pubFileInput?.files?.[0]) {
       pubTxt = (await pubFileInput.files[0].text()).trim();
@@ -1021,52 +1425,68 @@ document.addEventListener('submit', async (e) => {
 
     if (!pubTxt && !memoTxt) {
       renderHtmlStringToDom(
-        renderImportPage(cfg, {
-          ok: false,
-          errors: ['Please provide at least a public questions .txt file or a private memo .txt file.'],
-          warnings: [],
-        }),
+        renderImportPage(
+          cfg,
+          {
+            ok: false,
+            errors: ['Please provide at least a public questions .txt file or a private memo .txt file.'],
+            warnings: [],
+          },
+          currentUser,
+        ),
       );
       return;
     }
 
     if (pubTxt && memoTxt) {
-      const r = store.importPairTxt(pubTxt, memoTxt);
+      const r = store.importPairTxt(pubTxt, memoTxt, publisherUsername, currentUser?.id || null);
       renderHtmlStringToDom(
-        renderImportPage(cfg, {
-          ...r,
-          message:
-            r.ok && r.paper
-              ? \`Successfully imported "\${r.paper.title}" (\${r.paper.testId} v\${r.paper.version}, \${r.paper.questions.length} questions, \${r.paper.totalMarks.toFixed(2)} marks) with validated private memo.\`
-              : undefined,
-        }),
+        renderImportPage(
+          cfg,
+          {
+            ...r,
+            message:
+              r.ok && r.paper
+                ? \`Successfully validated and published "\${r.paper.title}" (\${r.paper.testId} v\${r.paper.version}, \${r.paper.questions.length} questions, \${r.paper.totalMarks.toFixed(2)} marks) by @\${publisherUsername}.\`
+                : undefined,
+          },
+          currentUser,
+        ),
       );
       return;
     }
 
     if (pubTxt) {
-      const r = store.importPublicTxt(pubTxt);
+      const r = store.importPublicTxt(pubTxt, publisherUsername, currentUser?.id || null);
       renderHtmlStringToDom(
-        renderImportPage(cfg, {
-          ...r,
-          message:
-            r.ok && r.paper
-              ? \`Imported public paper "\${r.paper.title}" (\${r.paper.testId} v\${r.paper.version}). Import its matching private memo before starting an attempt.\`
-              : undefined,
-        }),
+        renderImportPage(
+          cfg,
+          {
+            ...r,
+            message:
+              r.ok && r.paper
+                ? \`Imported public paper "\${r.paper.title}" (\${r.paper.testId} v\${r.paper.version}) by @\${publisherUsername}. Import its matching private memo before starting an attempt.\`
+                : undefined,
+          },
+          currentUser,
+        ),
       );
       return;
     }
 
     const r = store.importPrivateMemoTxt(memoTxt);
     renderHtmlStringToDom(
-      renderImportPage(cfg, {
-        ...r,
-        message:
-          r.ok && r.memo
-            ? \`Imported and validated private memo for "\${r.memo.testId}" v\${r.memo.version}. Ready to start attempts.\`
-            : undefined,
-      }),
+      renderImportPage(
+        cfg,
+        {
+          ...r,
+          message:
+            r.ok && r.memo
+              ? \`Imported and validated private memo for "\${r.memo.testId}" v\${r.memo.version}. Ready to start attempts.\`
+              : undefined,
+        },
+        currentUser,
+      ),
     );
     return;
   }
@@ -1110,11 +1530,41 @@ window.addEventListener('hashchange', () => {
   renderCurrentRoute();
 });
 
-renderCurrentRoute();
+// Check OAuth Redirect Hash (#access_token=...) before initial render
+async function bootstrapApp() {
+  const hash = window.location.hash || '';
+  if (hash.includes('access_token=')) {
+    const params = new URLSearchParams(hash.replace(/^#/, ''));
+    const accessToken = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
+    if (accessToken) {
+      history.replaceState(null, '', window.location.pathname + '#/practice');
+      const uRes = await sbFetch('/auth/v1/user', { token: accessToken });
+      if (uRes.ok && uRes.data?.id) {
+        const user = uRes.data;
+        const prof = await fetchProfile(user.id, accessToken);
+        saveSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          user,
+          username: prof?.username || null,
+        });
+        if (!prof?.username) {
+          history.replaceState(null, '', window.location.pathname + '#/login');
+        }
+      }
+    }
+  }
+  renderCurrentRoute();
+  await store.syncFromSupabase();
+  renderCurrentRoute();
+}
+
+bootstrapApp();
 `;
 fs.writeFileSync(path.join(APP_DIR, 'main.js'), mainJs.trimStart(), 'utf8');
 
-// 6. Write `dist/index.html`, `dist/404.html`, and `dist/.nojekyll`
+// 5. Write `dist/index.html`, `dist/404.html`, and `dist/.nojekyll`
 const indexHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1122,6 +1572,7 @@ const indexHtml = `<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>COMS3010A-OS-SM2-2026 - Practice Quizzes</title>
   <link rel="stylesheet" href="./public/moodle.css">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <noscript>JavaScript is required to run the OS Practice Exam Simulator on GitHub Pages.</noscript>

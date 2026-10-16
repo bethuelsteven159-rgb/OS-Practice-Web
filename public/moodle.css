@@ -1037,3 +1037,117 @@ a:hover {
     display: block;
   }
 }
+
+/* ---------- User Auth Slot, Publisher Filter Bar & Guide Cards ---------- */
+.navbar-user-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-publisher-pill {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #0F6CBF;
+  background: #E7F1FB;
+  border: 1px solid #B8D8F8;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.btn-sm-nav {
+  padding: 3px 9px;
+  font-size: 11.5px;
+}
+
+.publisher-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: #F8F9FA;
+  border: 1px solid #CAD0D7;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.filter-bar-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter-search-input {
+  width: 220px;
+  height: 28px;
+  padding: 2px 8px;
+}
+
+.filter-select {
+  height: 28px;
+  padding: 2px 24px 2px 8px;
+}
+
+.publisher-badge {
+  display: inline-block;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: #0F6CBF;
+  background: #E7F1FB;
+  border: 1px solid #B8D8F8;
+  border-radius: 11px;
+  padding: 1px 8px;
+  cursor: pointer;
+}
+
+.publisher-badge:hover {
+  background: #D0E5FA;
+  color: #094478;
+}
+
+.guide-download-card {
+  background: #E7F1FB;
+  border: 1px solid #B8D8F8;
+  border-radius: 4px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.auth-card {
+  background: #F8F9FA;
+  border: 1px solid #CAD0D7;
+  border-radius: 4px;
+  padding: 16px;
+}
+
+.auth-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.btn-google-oauth {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 4px;
+  border: 1px solid #CED4DA;
+  background: #FFFFFF;
+  color: #1D2125;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.btn-google-oauth:hover {
+  background: #F8F9FA;
+  border-color: #8F959E;
+}
+
